@@ -1,104 +1,70 @@
-/**
-* This file is part of Fast-Planner.
-*
-* Copyright 2019 Boyu Zhou, Aerial Robotics Group, Hong Kong University of Science and Technology, <uav.ust.hk>
-* Developed by Boyu Zhou <bzhouai at connect dot ust dot hk>, <uv dot boyuzhou at gmail dot com>
-* for more information see <https://github.com/HKUST-Aerial-Robotics/Fast-Planner>.
-* If you use this code, please cite the respective publications as
-* listed on the above website.
-*
-* Fast-Planner is free software: you can redistribute it and/or modify
-* it under the terms of the GNU Lesser General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* Fast-Planner is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU Lesser General Public License
-* along with Fast-Planner. If not, see <http://www.gnu.org/licenses/>.
-*/
-
-
-
 #ifndef _PLANNER_MANAGER_H_
 #define _PLANNER_MANAGER_H_
 
+#include <stdlib.h>
+
 #include <bspline_opt/bspline_optimizer.h>
-#include <bspline/non_uniform_bspline.h>
-#include <uav_utils/geometry_utils.h>
-#include <path_searching/astar.h>
-#include <path_searching/kinodynamic_astar.h>
-#include <plan_env/edt_environment.h>
-
+#include <bspline_opt/uniform_bspline.h>
+#include <plan_env/grid_map.h>
 #include <plan_manage/plan_container.hpp>
-
 #include <ros/ros.h>
+#include <traj_utils/planning_visualization.h>
 
-#include <traj_utils/polynomial_traj.h>
+namespace plan_manage
+{
 
-namespace fast_planner {
+  // Fast Planner Manager
+  // Key algorithms of mapping and planning are called
 
-// Fast Planner Manager
-// Key algorithms of mapping and planning are called
+  class EGOPlannerManager
+  {
+    // SECTION stable
+  public:
+    EGOPlannerManager();
+    ~EGOPlannerManager();
 
-class FastPlannerManager {
-  // SECTION stable
-public:
-  FastPlannerManager();
-  ~FastPlannerManager();
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  /* main planning interface */
-  bool kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vector3d start_vel, Eigen::Vector3d start_acc,
-                         Eigen::Vector3d end_pt, Eigen::Vector3d end_vel);
-                         
-  void initPlanModules(ros::NodeHandle& nh);
-  void setGlobalWaypoints(vector<Eigen::Vector3d>& waypoints);
+    /* main planning interface */
+    bool reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d start_vel, Eigen::Vector3d start_acc,
+                       Eigen::Vector3d end_pt, Eigen::Vector3d end_vel, bool flag_polyInit, bool flag_randomPolyTraj);
+    bool EmergencyStop(Eigen::Vector3d stop_pos);
+    bool planGlobalTraj(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
+                        const Eigen::Vector3d &end_pos, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc);
+    bool planGlobalTrajWaypoints(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
+                                 const std::vector<Eigen::Vector3d> &waypoints, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc);
 
-  int checkTrajCollision(double& distance, double& duration);
-  inline int getPlanningType(){
-    return planning_type_;
-  }
-  PlanParameters pp_;
-  LocalTrajData local_data_;
-  MidPlanData plan_data_;
-  EDTEnvironment::Ptr edt_environment_;
-  PolynomialTraj best_traj;
-  double ground_judge;
+    void initPlanModules(ros::NodeHandle &nh, PlanningVisualization::Ptr vis = NULL);
 
-private:
-  /* main planning algorithms & modules */
-  SDFMap::Ptr sdf_map_;
-  bool close_goal_traj_;
-  unique_ptr<Astar> geo_path_finder_;
-  unique_ptr<KinodynamicAstar> kino_path_finder_;
-  vector<BsplineOptimizer::Ptr> bspline_optimizers_;
-  int continous_failures_count_{0};
-  int primitive_num_;
-  double search_time, optimization_time;
-  int plan_round;
-  int planning_type_;
-  double odom_yaw;
-  double replan_thresh_;
-  double geo_astar_resolution_;
-  
-  Eigen::Vector3d odom_pos_, odom_vel_;  // odometry state
-  Eigen::Quaterniond odom_orient_;
+    PlanParameters pp_;
+    LocalTrajData local_data_;
+    GlobalTrajData global_data_;
+    GridMap::Ptr grid_map_;
 
-  ros::Subscriber odom_sub_;
-  void odometryCallback(const nav_msgs::OdometryConstPtr& msg);
-  void updateTrajInfo();
+  private:
+    /* main planning algorithms & modules */
+    PlanningVisualization::Ptr visualization_;
 
-  // !SECTION stable
-  // SECTION developing
+    BsplineOptimizer::Ptr bspline_optimizer_rebound_;
 
-public:
-  typedef unique_ptr<FastPlannerManager> Ptr;
+    int continous_failures_count_{0};
 
-  // !SECTION
-};
-}  // namespace fast_planner
+    void updateTrajInfo(const UniformBspline &position_traj, const ros::Time time_now);
+
+    void reparamBspline(UniformBspline &bspline, vector<Eigen::Vector3d> &start_end_derivative, double ratio, Eigen::MatrixXd &ctrl_pts, double &dt,
+                        double &time_inc);
+
+    bool refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points);
+
+    // !SECTION stable
+
+    // SECTION developing
+
+  public:
+    typedef unique_ptr<EGOPlannerManager> Ptr;
+
+    // !SECTION
+  };
+} // namespace plan_manage
 
 #endif

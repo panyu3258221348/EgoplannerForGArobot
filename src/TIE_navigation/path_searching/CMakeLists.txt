@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(path_searching)
 
+set(CMAKE_BUILD_TYPE "Release")
+ADD_COMPILE_OPTIONS(-std=c++11 )
+ADD_COMPILE_OPTIONS(-std=c++14 )
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
+
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 
@@ -11,14 +16,12 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   plan_env
   cv_bridge
-  traj_utils
 )
-
 
 catkin_package(
  INCLUDE_DIRS include
  LIBRARIES path_searching
- CATKIN_DEPENDS plan_env traj_utils 
+ CATKIN_DEPENDS plan_env
 #  DEPENDS system_lib
 )
 
@@ -30,14 +33,9 @@ include_directories(
     ${PCL_INCLUDE_DIRS}
 )
 
-set(CMAKE_CXX_FLAGS "-std=c++14 ${CMAKE_CXX_FLAGS} -O3 -Wall")
-
 add_library( path_searching 
-    src/kinodynamic_astar.cpp 
-    src/astar.cpp
+    src/dyn_a_star.cpp
     )
-
 target_link_libraries( path_searching
     ${catkin_LIBRARIES} 
-    )  
-  
+    )

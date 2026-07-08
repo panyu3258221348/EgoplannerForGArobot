@@ -1,8 +1,12 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(plan_env)
 
-find_package(OpenCV REQUIRED)
+set(CMAKE_BUILD_TYPE "Release")
+ADD_COMPILE_OPTIONS(-std=c++11 )
+ADD_COMPILE_OPTIONS(-std=c++14 )
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
+find_package(OpenCV REQUIRED)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -11,7 +15,6 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   cv_bridge
   message_filters
-  traj_utils
 )
 
 find_package(Eigen3 REQUIRED)
@@ -20,7 +23,7 @@ find_package(PCL REQUIRED)
 catkin_package(
  INCLUDE_DIRS include
  LIBRARIES plan_env
- CATKIN_DEPENDS roscpp std_msgs traj_utils
+ CATKIN_DEPENDS roscpp std_msgs
 #  DEPENDS system_lib
 )
 
@@ -35,12 +38,8 @@ include_directories(
 
 link_directories(${PCL_LIBRARY_DIRS})
 
-set(CMAKE_CXX_FLAGS "-std=c++14 ${CMAKE_CXX_FLAGS} -O3 -Wall")
-
 add_library( plan_env 
-    src/sdf_map.cpp 
-    src/obj_predictor.cpp 
-    src/edt_environment.cpp 
+    src/grid_map.cpp 
     src/raycast.cpp
     )
 target_link_libraries( plan_env

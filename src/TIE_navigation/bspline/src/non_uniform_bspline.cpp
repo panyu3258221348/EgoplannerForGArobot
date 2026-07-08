@@ -26,7 +26,7 @@
 #include "bspline/non_uniform_bspline.h"
 #include <ros/ros.h>
 
-namespace fast_planner {
+namespace plan_manage {
 
 NonUniformBspline::NonUniformBspline(const Eigen::MatrixXd& points, const int& order,
                                      const double& interval) {
@@ -501,4 +501,4 @@ void NonUniformBspline::getMeanAndMaxAcc(double& mean_a, double& max_a) {
   mean_a   = mean_acc;
   max_a    = max_acc;
 }
-}  // namespace fast_planner
+}  // namespace plan_manage

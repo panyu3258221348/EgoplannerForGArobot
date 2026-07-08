@@ -1,307 +1,242 @@
-/**
-* This file is part of Fast-Planner.
-*
-* Copyright 2019 Boyu Zhou, Aerial Robotics Group, Hong Kong University of Science and Technology, <uav.ust.hk>
-* Developed by Boyu Zhou <bzhouai at connect dot ust dot hk>, <uv dot boyuzhou at gmail dot com>
-* for more information see <https://github.com/HKUST-Aerial-Robotics/Fast-Planner>.
-* If you use this code, please cite the respective publications as
-* listed on the above website.
-*
-* Fast-Planner is free software: you can redistribute it and/or modify
-* it under the terms of the GNU Lesser General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* Fast-Planner is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU Lesser General Public License
-* along with Fast-Planner. If not, see <http://www.gnu.org/licenses/>.
-*/
-
-
-
 #include <traj_utils/planning_visualization.h>
 
 using std::cout;
 using std::endl;
-namespace fast_planner {
-PlanningVisualization::PlanningVisualization(ros::NodeHandle& nh) {
-  node = nh;
+namespace plan_manage
+{
+  PlanningVisualization::PlanningVisualization(ros::NodeHandle &nh)
+  {
+    node = nh;
 
-  traj_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/trajectory", 20);
-  pubs_.push_back(traj_pub_);
-
-  predict_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/prediction", 20);
-  pubs_.push_back(predict_pub_);
-
-  visib_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/visib_constraint", 20);
-  pubs_.push_back(visib_pub_);
-
-  frontier_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/frontier", 20);
-  pubs_.push_back(frontier_pub_);
-
-  yaw_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/yaw", 20);
-  pubs_.push_back(yaw_pub_);
-
-  geo_astar_pub_ = node.advertise<visualization_msgs::Marker>("/planning_vis/geoAstar", 20);
-  pubs_.push_back(yaw_pub_);
-}
-
-void PlanningVisualization::displaySphereList(const vector<Eigen::Vector3d>& list, double resolution,
-                                              const Eigen::Vector4d& color, int id, int pub_id) {
-  visualization_msgs::Marker mk;
-  mk.header.frame_id = "world";
-  mk.header.stamp    = ros::Time::now();
-  mk.type            = visualization_msgs::Marker::SPHERE_LIST;
-  mk.action          = visualization_msgs::Marker::DELETE;
-  mk.id              = id;
-  pubs_[pub_id].publish(mk);
-
-  mk.action             = visualization_msgs::Marker::ADD;
-  mk.pose.orientation.x = 0.0;
-  mk.pose.orientation.y = 0.0;
-  mk.pose.orientation.z = 0.0;
-  mk.pose.orientation.w = 1.0;
-
-  mk.color.r = color(0);
-  mk.color.g = color(1);
-  mk.color.b = color(2);
-  mk.color.a = color(3);
-
-  mk.scale.x = resolution;
-  mk.scale.y = resolution;
-  mk.scale.z = resolution;
-
-  geometry_msgs::Point pt;
-  for (int i = 0; i < int(list.size()); i++) {
-    pt.x = list[i](0);
-    pt.y = list[i](1);
-    pt.z = list[i](2);
-    mk.points.push_back(pt);
+    goal_point_pub = nh.advertise<visualization_msgs::Marker>("goal_point", 2);
+    global_list_pub = nh.advertise<visualization_msgs::Marker>("global_list", 2);
+    init_list_pub = nh.advertise<visualization_msgs::Marker>("init_list", 2);
+    optimal_list_pub = nh.advertise<visualization_msgs::Marker>("optimal_list", 2);
+    a_star_list_pub = nh.advertise<visualization_msgs::Marker>("a_star_list", 20);
   }
-  pubs_[pub_id].publish(mk);
-  ros::Duration(0.001).sleep();
-}
 
-void PlanningVisualization::displayCubeList(const vector<Eigen::Vector3d>& list, double resolution,
-                                            const Eigen::Vector4d& color, int id, int pub_id) {
-  visualization_msgs::Marker mk;
-  mk.header.frame_id = "world";
-  mk.header.stamp    = ros::Time::now();
-  mk.type            = visualization_msgs::Marker::CUBE_LIST;
-  mk.action          = visualization_msgs::Marker::DELETE;
-  mk.id              = id;
-  pubs_[pub_id].publish(mk);
+  // // real ids used: {id, id+1000}
+  void PlanningVisualization::displayMarkerList(ros::Publisher &pub, const vector<Eigen::Vector3d> &list, double scale,
+                                                Eigen::Vector4d color, int id)
+  {
+    visualization_msgs::Marker sphere, line_strip;
+    sphere.header.frame_id = line_strip.header.frame_id = "world";
+    sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
+    sphere.type = visualization_msgs::Marker::SPHERE_LIST;
+    line_strip.type = visualization_msgs::Marker::LINE_STRIP;
+    sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+    sphere.id = id;
+    line_strip.id = id + 1000;
 
-  mk.action             = visualization_msgs::Marker::ADD;
-  mk.pose.orientation.x = 0.0;
-  mk.pose.orientation.y = 0.0;
-  mk.pose.orientation.z = 0.0;
-  mk.pose.orientation.w = 1.0;
-
-  mk.color.r = color(0);
-  mk.color.g = color(1);
-  mk.color.b = color(2);
-  mk.color.a = color(3);
-
-  mk.scale.x = resolution;
-  mk.scale.y = resolution;
-  mk.scale.z = resolution;
-
-  geometry_msgs::Point pt;
-  for (int i = 0; i < int(list.size()); i++) {
-    pt.x = list[i](0);
-    pt.y = list[i](1);
-    pt.z = list[i](2);
-    mk.points.push_back(pt);
+    sphere.pose.orientation.w = line_strip.pose.orientation.w = 1.0;
+    sphere.color.r = line_strip.color.r = color(0);
+    sphere.color.g = line_strip.color.g = color(1);
+    sphere.color.b = line_strip.color.b = color(2);
+    sphere.color.a = line_strip.color.a = color(3) > 1e-5 ? color(3) : 1.0;
+    sphere.scale.x = scale;
+    sphere.scale.y = scale;
+    sphere.scale.z = scale;
+    line_strip.scale.x = scale / 2;
+    geometry_msgs::Point pt;
+    for (int i = 0; i < int(list.size()); i++)
+    {
+      pt.x = list[i](0);
+      pt.y = list[i](1);
+      pt.z = list[i](2);
+      sphere.points.push_back(pt);
+      line_strip.points.push_back(pt);
+    }
+    pub.publish(sphere);
+    pub.publish(line_strip);
   }
-  pubs_[pub_id].publish(mk);
 
-  ros::Duration(0.001).sleep();
-}
+  // real ids used: {id, id+1}
+  void PlanningVisualization::generatePathDisplayArray(visualization_msgs::MarkerArray &array,
+                                                       const vector<Eigen::Vector3d> &list, double scale, Eigen::Vector4d color, int id)
+  {
+    visualization_msgs::Marker sphere, line_strip;
+    sphere.header.frame_id = line_strip.header.frame_id = "map";
+    sphere.header.stamp = line_strip.header.stamp = ros::Time::now();
+    sphere.type = visualization_msgs::Marker::SPHERE_LIST;
+    line_strip.type = visualization_msgs::Marker::LINE_STRIP;
+    sphere.action = line_strip.action = visualization_msgs::Marker::ADD;
+    sphere.id = id;
+    line_strip.id = id + 1;
 
-void PlanningVisualization::displayLineList(const vector<Eigen::Vector3d>& list1,
-                                            const vector<Eigen::Vector3d>& list2, double line_width,
-                                            const Eigen::Vector4d& color, int id, int pub_id) {
-  visualization_msgs::Marker mk;
-  mk.header.frame_id = "world";
-  mk.header.stamp    = ros::Time::now();
-  mk.type            = visualization_msgs::Marker::LINE_LIST;
-  mk.action          = visualization_msgs::Marker::DELETE;
-  mk.id              = id;
-  pubs_[pub_id].publish(mk);
-
-  mk.action             = visualization_msgs::Marker::ADD;
-  mk.pose.orientation.x = 0.0;
-  mk.pose.orientation.y = 0.0;
-  mk.pose.orientation.z = 0.0;
-  mk.pose.orientation.w = 1.0;
-
-  mk.color.r = color(0);
-  mk.color.g = color(1);
-  mk.color.b = color(2);
-  mk.color.a = color(3);
-  mk.scale.x = line_width;
-
-  geometry_msgs::Point pt;
-  for (int i = 0; i < int(list1.size()); ++i) {
-    pt.x = list1[i](0);
-    pt.y = list1[i](1);
-    pt.z = list1[i](2);
-    mk.points.push_back(pt);
-
-    pt.x = list2[i](0);
-    pt.y = list2[i](1);
-    pt.z = list2[i](2);
-    mk.points.push_back(pt);
+    sphere.pose.orientation.w = line_strip.pose.orientation.w = 1.0;
+    sphere.color.r = line_strip.color.r = color(0);
+    sphere.color.g = line_strip.color.g = color(1);
+    sphere.color.b = line_strip.color.b = color(2);
+    sphere.color.a = line_strip.color.a = color(3) > 1e-5 ? color(3) : 1.0;
+    sphere.scale.x = scale;
+    sphere.scale.y = scale;
+    sphere.scale.z = scale;
+    line_strip.scale.x = scale / 3;
+    geometry_msgs::Point pt;
+    for (int i = 0; i < int(list.size()); i++)
+    {
+      pt.x = list[i](0);
+      pt.y = list[i](1);
+      pt.z = list[i](2);
+      sphere.points.push_back(pt);
+      line_strip.points.push_back(pt);
+    }
+    array.markers.push_back(sphere);
+    array.markers.push_back(line_strip);
   }
-  pubs_[pub_id].publish(mk);
 
-  ros::Duration(0.001).sleep();
-}
+  // real ids used: {1000*id ~ (arrow nums)+1000*id}
+  void PlanningVisualization::generateArrowDisplayArray(visualization_msgs::MarkerArray &array,
+                                                        const vector<Eigen::Vector3d> &list, double scale, Eigen::Vector4d color, int id)
+  {
+    visualization_msgs::Marker arrow;
+    arrow.header.frame_id = "map";
+    arrow.header.stamp = ros::Time::now();
+    arrow.type = visualization_msgs::Marker::ARROW;
+    arrow.action = visualization_msgs::Marker::ADD;
 
-void PlanningVisualization::drawBspline(NonUniformBspline& bspline, double size,
-                                        const Eigen::Vector4d& color, bool show_ctrl_pts, double size2,
-                                        const Eigen::Vector4d& color2, int id1, int id2) {
-  if (bspline.getControlPoint().size() == 0) return;
+    // geometry_msgs::Point start, end;
+    // arrow.points
 
-  vector<Eigen::Vector3d> traj_pts;
-  double                  tm, tmp;
-  bspline.getTimeSpan(tm, tmp);
-  int aerial_cnt = 0;
-  for (double t = tm; t <= tmp; t += 0.01) {
-    Eigen::Vector3d pt = bspline.evaluateDeBoor(t);
-    if(pt[2] <= 0.2){
-      if(aerial_cnt % 10 == 0){
-        traj_pts.push_back(pt);
+    arrow.color.r = color(0);
+    arrow.color.g = color(1);
+    arrow.color.b = color(2);
+    arrow.color.a = color(3) > 1e-5 ? color(3) : 1.0;
+    arrow.scale.x = scale;
+    arrow.scale.y = 2 * scale;
+    arrow.scale.z = 2 * scale;
+
+    geometry_msgs::Point start, end;
+    for (int i = 0; i < int(list.size() / 2); i++)
+    {
+      // arrow.color.r = color(0) / (1+i);
+      // arrow.color.g = color(1) / (1+i);
+      // arrow.color.b = color(2) / (1+i);
+
+      start.x = list[2 * i](0);
+      start.y = list[2 * i](1);
+      start.z = list[2 * i](2);
+      end.x = list[2 * i + 1](0);
+      end.y = list[2 * i + 1](1);
+      end.z = list[2 * i + 1](2);
+      arrow.points.clear();
+      arrow.points.push_back(start);
+      arrow.points.push_back(end);
+      arrow.id = i + id * 1000;
+
+      array.markers.push_back(arrow);
+    }
+  }
+
+  void PlanningVisualization::displayGoalPoint(Eigen::Vector3d goal_point, Eigen::Vector4d color, const double scale, int id)
+  {
+    visualization_msgs::Marker sphere;
+    sphere.header.frame_id = "world";
+    sphere.header.stamp = ros::Time::now();
+    sphere.type = visualization_msgs::Marker::SPHERE;
+    sphere.action = visualization_msgs::Marker::ADD;
+    sphere.id = id;
+
+    sphere.pose.orientation.w = 1.0;
+    sphere.color.r = color(0);
+    sphere.color.g = color(1);
+    sphere.color.b = color(2);
+    sphere.color.a = color(3);
+    sphere.scale.x = scale;
+    sphere.scale.y = scale;
+    sphere.scale.z = scale;
+    sphere.pose.position.x = goal_point(0);
+    sphere.pose.position.y = goal_point(1);
+    sphere.pose.position.z = goal_point(2);
+
+    goal_point_pub.publish(sphere);
+  }
+
+  void PlanningVisualization::displayGlobalPathList(vector<Eigen::Vector3d> init_pts, const double scale, int id)
+  {
+
+    if (global_list_pub.getNumSubscribers() == 0)
+    {
+      return;
+    }
+
+    Eigen::Vector4d color(0, 0.5, 0.5, 1);
+    displayMarkerList(global_list_pub, init_pts, scale, color, id);
+  }
+
+  void PlanningVisualization::displayInitPathList(vector<Eigen::Vector3d> init_pts, const double scale, int id)
+  {
+
+    if (init_list_pub.getNumSubscribers() == 0)
+    {
+      return;
+    }
+
+    Eigen::Vector4d color(0, 0, 1, 1);
+    displayMarkerList(init_list_pub, init_pts, scale, color, id);
+  }
+
+  void PlanningVisualization::displayOptimalList(Eigen::MatrixXd optimal_pts, int id)
+  {
+
+    if (optimal_list_pub.getNumSubscribers() == 0)
+    {
+      return;
+    }
+
+    vector<Eigen::Vector3d> list;
+    for (int i = 0; i < optimal_pts.cols(); i++)
+    {
+      Eigen::Vector3d pt = optimal_pts.col(i).transpose();
+      list.push_back(pt);
+    }
+    Eigen::Vector4d color(1, 0, 0, 1);
+    displayMarkerList(optimal_list_pub, list, 0.15, color, id);
+  }
+
+  void PlanningVisualization::displayAStarList(std::vector<std::vector<Eigen::Vector3d>> a_star_paths, int id /* = Eigen::Vector4d(0.5,0.5,0,1)*/)
+  {
+
+    if (a_star_list_pub.getNumSubscribers() == 0)
+    {
+      return;
+    }
+
+    int i = 0;
+    vector<Eigen::Vector3d> list;
+
+    Eigen::Vector4d color = Eigen::Vector4d(0.5 + ((double)rand() / RAND_MAX / 2), 0.5 + ((double)rand() / RAND_MAX / 2), 0, 1); // make the A star pathes different every time.
+    double scale = 0.05 + (double)rand() / RAND_MAX / 10;
+
+    // for ( int i=0; i<10; i++ )
+    // {
+    //   //Eigen::Vector4d color(1,1,0,0);
+    //   displayMarkerList(a_star_list_pub, list, scale, color, id+i);
+    // }
+
+    for (auto block : a_star_paths)
+    {
+      list.clear();
+      for (auto pt : block)
+      {
+        list.push_back(pt);
       }
-      aerial_cnt++;
-    }
-    else{
-      traj_pts.push_back(pt);
-    }
-  }
-  displaySphereList(traj_pts, size, color, BSPLINE + id1 % 100);
-
-  // draw the control point
-  if (!show_ctrl_pts) return;
-
-  Eigen::MatrixXd         ctrl_pts = bspline.getControlPoint();
-  vector<Eigen::Vector3d> ctp;
-
-  for (int i = 0; i < int(ctrl_pts.rows()); ++i) {
-    Eigen::Vector3d pt = ctrl_pts.row(i).transpose();
-    ctp.push_back(pt);
-  }
-
-  displaySphereList(ctp, size, color2, BSPLINE_CTRL_PT + id2 % 100);
-}
-
-void PlanningVisualization::drawHybridSearchedWaypoints(vector<vector<Eigen::Vector3d>>& hybrid_wpts, vector<int> motion_state_list, double size,
-                                        const Eigen::Vector4d& color1, const Eigen::Vector4d& color2, int id) {
-  if (hybrid_wpts.size() == 0) return;
-  for(int i = 0; i < hybrid_wpts.size(); i++){
-    if(motion_state_list[i] == 0){      //rolling
-      displaySphereList(hybrid_wpts[i], size, color1, SEARCHED_GROUND_WPTS + id % 100);
-    }
-    else{     //flying
-      displaySphereList(hybrid_wpts[i], size, color2, SEARCHED_FLYING_WPTS + id % 100);
+      //Eigen::Vector4d color(0.5,0.5,0,1);
+      displayMarkerList(a_star_list_pub, list, scale, color, id + i); // real ids used: [ id ~ id+a_star_paths.size() ]
+      i++;
     }
   }
-}
 
-void PlanningVisualization::drawMotionPrimitive(const vector<vector<Eigen::Vector3d>>& wpts, int best_index, 
-                              double resolution, const Eigen::Vector4d& color1, const Eigen::Vector4d& color2, int id){
-  if (wpts.size() == 0) return;
-  for(int i = 0; i < wpts.size(); i++){
-    if(i == best_index){      //rolling
-      displaySphereList(wpts[i], resolution, color1, MOTION_PRIMITIVE + (id++ ) % 200);
-    }
-    else{     //flying
-      displaySphereList(wpts[i], resolution, color2, MOTION_PRIMITIVE + (id++ ) % 200);
-    }
-  }
-}
-void PlanningVisualization::drawHybridSampledWaypoints(vector<vector<Eigen::Vector3d>>& hybrid_wpts, vector<int> motion_state_list,double size,
-                                        const Eigen::Vector4d& color1, const Eigen::Vector4d& color2, int id) {
-  if (hybrid_wpts.size() == 0) return;
-  for(int i = 0; i < hybrid_wpts.size(); i++){
-    if(motion_state_list[i] == 0){      //rolling
-      displaySphereList(hybrid_wpts[i], size, color1, SAMPLED_GROUND_WPTS + (id++ ) % 100);
-    }
-    else{     //flying
-      displaySphereList(hybrid_wpts[i], size, color2, SAMPLED_GROUND_WPTS + (id++ ) % 100);
-    }
-  }
-}
+  void PlanningVisualization::displayArrowList(ros::Publisher &pub, const vector<Eigen::Vector3d> &list, double scale, Eigen::Vector4d color, int id)
+  {
+    visualization_msgs::MarkerArray array;
+    // clear
+    pub.publish(array);
 
-void PlanningVisualization::drawGoal(Eigen::Vector3d goal, double resolution,
-                                     const Eigen::Vector4d& color, int id) {
-  vector<Eigen::Vector3d> goal_vec = { goal };
-  displaySphereList(goal_vec, resolution, color, GOAL + id % 100);
-}
+    generateArrowDisplayArray(array, list, scale, color, id);
 
-void PlanningVisualization::drawGeometricPath(const vector<Eigen::Vector3d>& path, double resolution,
-                                              const Eigen::Vector4d& color, int id) {
-  displaySphereList(path, resolution, color, GEOASTAR + id % 100);
-  vector<Eigen::Vector3d> inter_points;
-  double inter_num = 50;
-  for(int i = 0; i < path.size() - 1; i++){
-    Eigen::Vector3d start_pos = path[i];
-    Eigen::Vector3d end_pos = path[i+1];
-    for(int j = 0; j < inter_num; j++){
-      inter_points.push_back((inter_num - double(j)) / inter_num * start_pos + double(j) / inter_num * end_pos);
-    }
-  }
-  displaySphereList(inter_points, resolution, color, GEOASTAR + (id + 1) % 100);
-}
-
-Eigen::Vector4d PlanningVisualization::getColor(double h, double alpha) {
-  if (h < 0.0 || h > 1.0) {
-    std::cout << "h out of range" << std::endl;
-    h = 0.0;
+    pub.publish(array);
   }
 
-  double          lambda;
-  Eigen::Vector4d color1, color2;
-  if (h >= -1e-4 && h < 1.0 / 6) {
-    lambda = (h - 0.0) * 6;
-    color1 = Eigen::Vector4d(1, 0, 0, 1);
-    color2 = Eigen::Vector4d(1, 0, 1, 1);
-
-  } else if (h >= 1.0 / 6 && h < 2.0 / 6) {
-    lambda = (h - 1.0 / 6) * 6;
-    color1 = Eigen::Vector4d(1, 0, 1, 1);
-    color2 = Eigen::Vector4d(0, 0, 1, 1);
-
-  } else if (h >= 2.0 / 6 && h < 3.0 / 6) {
-    lambda = (h - 2.0 / 6) * 6;
-    color1 = Eigen::Vector4d(0, 0, 1, 1);
-    color2 = Eigen::Vector4d(0, 1, 1, 1);
-
-  } else if (h >= 3.0 / 6 && h < 4.0 / 6) {
-    lambda = (h - 3.0 / 6) * 6;
-    color1 = Eigen::Vector4d(0, 1, 1, 1);
-    color2 = Eigen::Vector4d(0, 1, 0, 1);
-
-  } else if (h >= 4.0 / 6 && h < 5.0 / 6) {
-    lambda = (h - 4.0 / 6) * 6;
-    color1 = Eigen::Vector4d(0, 1, 0, 1);
-    color2 = Eigen::Vector4d(1, 1, 0, 1);
-
-  } else if (h >= 5.0 / 6 && h <= 1.0 + 1e-4) {
-    lambda = (h - 5.0 / 6) * 6;
-    color1 = Eigen::Vector4d(1, 1, 0, 1);
-    color2 = Eigen::Vector4d(1, 0, 0, 1);
-  }
-
-  Eigen::Vector4d fcolor = (1 - lambda) * color1 + lambda * color2;
-  fcolor(3)              = alpha;
-
-  return fcolor;
-}
-// PlanningVisualization::
-}  // namespace fast_planner
+  // PlanningVisualization::
+} // namespace plan_manage
