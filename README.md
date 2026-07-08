@@ -3,13 +3,15 @@
 **Terrestrial-Aerial-Navigation** is an autonomous navigation framework that brings complete autonomy to terrestrial-aerial bimodal vehicles (TABVs). This repository contains the following sub-modules:
 
 - A bi-level motion planner which generates safe, smooth, and dynamically feasible terrestrial-aerial hybrid trajectories.
-- A customized [TABV platform](https://github.com/ZJU-FAST-Lab/TABV-Platform) that carries adequate sensing and computing resources while ensuring portability and
-  maneuverability.
+- A customized [TABV platform](https://github.com/ZJU-FAST-Lab/TABV-Platform) that carries adequate sensing and computing resources while ensuring portability and maneuverability.
 
-# About
-If our source code or hardware platform is used in your academic projects, please cite the related paper below.
+> **Update**: The planner has been migrated from [Fast-Planner](https://github.com/HKUST-Aerial-Robotics/Fast-Planner) to [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner), removing CUDA, NLopt, and ESDF dependencies. Planning time ~1ms.
 
-- [Autonomous and Adaptive Navigation for Terrestrial-Aerial Bimodal Vehicles](https://ieeexplore.ieee.org/document/9691888) , Ruibin Zhang, Yuze Wu, Lixian Zhang, Chao Xu, and Fei Gao, IEEE Robotics and Automation Letters (**RA-L**), 2022.
+## About
+
+If our source code or hardware platform is used in your academic projects, please cite the related papers below.
+
+- [Autonomous and Adaptive Navigation for Terrestrial-Aerial Bimodal Vehicles](https://ieeexplore.ieee.org/document/9691888), Ruibin Zhang, Yuze Wu, Lixian Zhang, Chao Xu, and Fei Gao, IEEE Robotics and Automation Letters (**RA-L**), 2022.
 
 ```
 @ARTICLE{Zhang2022TABV,
@@ -22,52 +24,102 @@ If our source code or hardware platform is used in your academic projects, pleas
       pages={3008-3015}
 }
 ```
-Video Links: [Youtube](https://www.youtube.com/watch?v=Bdb5mK9OKIo&feature=youtu.be).
 
-  <p align="center">
-    <img src="figs/cover.png" width="600"/>
-  </p>
+- [EGO-Planner: An ESDF-free Gradient-based Local Planner for Quadrotors](https://ieeexplore.ieee.org/document/9345365), Xin Zhou, Zhepei Wang, Chao Xu, Fei Gao, IEEE Robotics and Automation Letters (**RA-L**), 2020.
 
-</a>
-
-# Quick Start
-Compiling tests passed on ubuntu 20.04. You can just execute the following commands one by one.
-
-1. Install nlopt following the [official document](https://nlopt.readthedocs.io/en/latest/NLopt_Installation/).
-
-2. Install other dependencies and compile the project.
 ```
-sudo apt-get install libarmadillo-dev
-git clone https://github.com/ZJU-FAST-Lab/Terrestrial-Aerial-Navigation.git
-cd Terrestrial-Aerial-Navigation
-catkin_make
-source devel/setup.bash
-sh src/run.sh
+@ARTICLE{Zhou2020EGO,
+      author={Zhou, Xin and Wang, Zhepei and Xu, Chao and Gao, Fei},
+      journal={IEEE Robotics and Automation Letters}, 
+      title={EGO-Planner: An ESDF-free Gradient-based Local Planner for Quadrotors}, 
+      year={2020},
+}
 ```
-Then, you can trigger the planner and choose the planning goal using the ```2D Nav Goal``` tool in ```rviz```. Then, the TABV will follow terrestrial-aerial hybrid trajectories to navigate a  random forest map and cross a high barrier :
 
-<p align = "center">
-<img src="figs/sim.gif" width = "700" height = "400" border="3" />
+Video Links: [TABV Youtube](https://www.youtube.com/watch?v=Bdb5mK9OKIo), [EGO-Planner Youtube](https://www.youtube.com/watch?v=GK3cg5dR6lU).
+
+<p align="center">
+  <img src="figs/cover.png" width="600"/>
 </p>
 
-[NOTE] remember to change the CUDA option of **src/uav_simulator/local_sensing/CMakeLists.txt**, i.e., change the 'arch' and 'code' flags in the line of 
+## Architecture
 
-    set(CUDA_NVCC_FLAGS 
-      -gencode arch=compute_75,code=sm_75;
-    ) 
+```
+src/
+├── TIE_navigation/          # Core planning framework
+│   ├── plan_env/            #   Occupancy grid map (GridMap, no ESDF)
+│   ├── path_searching/      #   A* front-end path search
+│   ├── bspline_opt/         #   L-BFGS + rebound trajectory optimization
+│   ├── bspline/             #   B-spline curve utilities
+│   ├── traj_utils/          #   Trajectory visualization & polynomial traj
+│   └── plan_manage/         #   EGOReplanFSM, launch files, RViz config
+└── uav_simulator/           # Lightweight simulation
+    ├── fake_drone/          #   Quadrotor dynamics simulation
+    ├── local_sensing/       #   Point cloud renderer (CPU only)
+    ├── map_generator/       #   Random obstacle forest generator
+    └── Utils/               #   Shared utilities & RViz plugins
+```
 
-according to your Nvidia graphics card version. You can check the right code [here](https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/).
+## Quick Start
 
+Tested on **Ubuntu 20.04 + ROS Noetic**.
 
-# Acknowledgements
-We build on [Fast-Planner](https://github.com/HKUST-Aerial-Robotics/Fast-Planner) by extending its path searching and trajectory generation methods to TABV motion planning. We use  [NLopt](https://nlopt.readthedocs.io/en/latest/)  for solving nonlinear optimization problems in trajectory generation.
+```bash
+sudo apt-get install libarmadillo-dev
 
-# Licence
+git clone https://github.com/ZJU-FAST-Lab/Terrestrial-Aerial-Navigation.git
+cd Terrestrial-Aerial-Navigation
+catkin_make -j$(nproc)
+source devel/setup.bash
+roslaunch plan_manage ego_replan.launch
+```
+
+Use the **2D Nav Goal** tool in RViz to select a goal. The drone will plan and execute collision-free trajectories.
+
+<p align="center">
+<img src="figs/sim.gif" width="700" height="400" border="3" />
+</p>
+
+## Launch Files
+
+| Launch File | Description |
+|---|---|
+| `ego_replan.launch` | **Main** — EGO-Planner with simulation, RViz |
+| `kino_replan.launch` | Fast-Planner with kinodynamic A* (backup) |
+
+## Configuration
+
+Key parameters in `ego_replan.launch`:
+
+| Param | Default | Description |
+|---|---|---|
+| `map_size_x/y/z` | 20/20/5 | Map dimensions (meters) |
+| `max_vel` | 2.0 | Max velocity (m/s) |
+| `max_acc` | 3.0 | Max acceleration (m/s²) |
+| `planning_horizon` | 7.5 | Planning horizon (meters) |
+| `flight_type` | 1 | 1=manual 2D Nav Goal, 2=preset waypoints |
+| `p_num` | 80 | Number of random obstacles |
+
+## Key Differences from Fast-Planner
+
+| Component | Fast-Planner (old) | EGO-Planner (current) |
+|---|---|---|
+| Mapping | SDF + ESDF distance field | Occupancy grid (no ESDF) |
+| Front-end | Kinodynamic A* | Standard A* |
+| Optimization | NLopt gradient-based | L-BFGS + rebound |
+| Planning time | ~10ms | ~1ms |
+| Dependencies | NLopt, CUDA (optional) | None extra |
+
+## Acknowledgements
+
+Built on [EGO-Planner](https://github.com/ZJU-FAST-Lab/ego-planner) and [Fast-Planner](https://github.com/HKUST-Aerial-Robotics/Fast-Planner). Uses [LBFGS-lite](https://github.com/ZJU-FAST-Lab/LBFGS-Lite) for numerical optimization.
+
+## Licence
+
 The source code is released under [GPLv3](https://www.gnu.org/licenses/) license.
 
-# Maintenance
-We are still working on extending the proposed system and improving code reliability.
+## Maintenance
 
-For any technical issues, please contact Ruibin Zhang (ruibin_zhang@zju.edu.cn) or Fei Gao (fgaoaa@zju.edu.cn).
+For technical issues, please contact Ruibin Zhang (ruibin_zhang@zju.edu.cn) or Fei Gao (fgaoaa@zju.edu.cn).
 
 For commercial inquiries, please contact Fei Gao (fgaoaa@zju.edu.cn).
