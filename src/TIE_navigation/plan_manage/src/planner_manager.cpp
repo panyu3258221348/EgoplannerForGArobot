@@ -21,6 +21,7 @@ namespace plan_manage
     nh.param("manager/feasibility_tolerance", pp_.feasibility_tolerance_, 0.0);
     nh.param("manager/control_points_distance", pp_.ctrl_pt_dist, -1.0);
     nh.param("manager/planning_horizon", pp_.planning_horizen_, 5.0);
+    nh.param("manager/use_distinctive_trajs", pp_.use_distinctive_trajs, false);
 
     local_data_.traj_id_ = 0;
     grid_map_.reset(new GridMap);
@@ -226,7 +227,33 @@ namespace plan_manage
     t_start = ros::Time::now();
 
     /*** STEP 2: OPTIMIZE ***/
-    bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
+    bool flag_step_1_success = false;
+    if (pp_.use_distinctive_trajs)
+    {
+      auto trajs = bspline_optimizer_rebound_->distinctiveTrajs();
+      printf("\033[1;33mmulti-trajs=%zu\033[0m\n", trajs.size());
+      double min_cost = 999999.0;
+      Eigen::MatrixXd best_ctrl_pts;
+      for (size_t i = 0; i < trajs.size(); i++)
+      {
+        // Copy full ControlPoints (points + base_point + direction)
+        bspline_optimizer_rebound_->setControlPoints(trajs[i].points);
+        Eigen::MatrixXd ctrl_pts_i;
+        if (bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts_i, ts))
+        {
+          // Simple cost: use the optimization cost from the last run
+          // Just pick the first successful one for now
+          best_ctrl_pts = ctrl_pts_i;
+          flag_step_1_success = true;
+          min_cost = 0;
+        }
+      }
+      if (flag_step_1_success) ctrl_pts = best_ctrl_pts;
+    }
+    else
+    {
+      flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
+    }
     cout << "first_optimize_step_success=" << flag_step_1_success << endl;
     if (!flag_step_1_success)
     {

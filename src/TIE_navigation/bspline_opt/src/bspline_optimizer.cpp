@@ -271,6 +271,12 @@ namespace plan_manage
       }
     }
 
+    a_star_pathes_ = a_star_pathes;
+    collision_segments_.clear();
+    for (size_t i = 0; i < segment_ids.size(); i++)
+      if (a_star_pathes[i].size() > 1)
+        collision_segments_.push_back(final_segment_ids[i]);
+
     return a_star_pathes;
   }
 
@@ -302,6 +308,161 @@ namespace plan_manage
       }
     }
     return false;
+  }
+
+  std::vector<ControlPoints> BsplineOptimizer::distinctiveTrajs(void)
+  {
+    auto &segments = collision_segments_;
+    if (segments.empty())
+    {
+      std::vector<ControlPoints> oneSeg;
+      oneSeg.push_back(cps_);
+      return oneSeg;
+    }
+
+    constexpr int MAX_TRAJS = 8;
+    constexpr int VARIS = 2; // 2 variants per segment: original 0 and reversed 1
+    int seg_upbound = std::min((int)segments.size(), static_cast<int>(floor(log(MAX_TRAJS) / log(VARIS))));
+    const double RESOLUTION = grid_map_->getResolution();
+    const double CTRL_PT_DIST = (cps_.points.col(0) - cps_.points.col(cps_.size - 1)).norm() / (cps_.size - 1);
+
+    // Extract RichInfo for each segment: first=original direction, second=reversed direction
+    std::vector<std::pair<ControlPoints, ControlPoints>> RichInfoSegs(seg_upbound);
+    for (int i = 0; i < seg_upbound; i++)
+    {
+      cps_.segment(RichInfoSegs[i].first, segments[i].first, segments[i].second);
+      RichInfoSegs[i].second = RichInfoSegs[i].first;
+
+      if (RichInfoSegs[i].first.size > 1)
+      {
+        // Find start and end occupied control point indices
+        int occ_start_id = -1, occ_end_id = -1;
+        Eigen::Vector3d occ_start_pt, occ_end_pt;
+        for (int j = 0; j < RichInfoSegs[i].first.size - 1; j++)
+        {
+          double step_size = RESOLUTION / (RichInfoSegs[i].first.points.col(j) - RichInfoSegs[i].first.points.col(j + 1)).norm() / 2;
+          for (double a = 1; a > 0; a -= step_size)
+          {
+            Eigen::Vector3d pt(a * RichInfoSegs[i].first.points.col(j) + (1 - a) * RichInfoSegs[i].first.points.col(j + 1));
+            if (grid_map_->getInflateOccupancy(pt)) { occ_start_id = j; occ_start_pt = pt; goto exit_loop1; }
+          }
+        }
+      exit_loop1:
+        for (int j = RichInfoSegs[i].first.size - 1; j >= 1; j--)
+        {
+          double step_size = RESOLUTION / (RichInfoSegs[i].first.points.col(j) - RichInfoSegs[i].first.points.col(j - 1)).norm();
+          for (double a = 1; a > 0; a -= step_size)
+          {
+            Eigen::Vector3d pt(a * RichInfoSegs[i].first.points.col(j) + (1 - a) * RichInfoSegs[i].first.points.col(j - 1));
+            if (grid_map_->getInflateOccupancy(pt)) { occ_end_id = j; occ_end_pt = pt; goto exit_loop2; }
+          }
+        }
+      exit_loop2:
+
+        if (occ_start_id < 0 || occ_end_id < 0) { seg_upbound = i; break; }
+
+        // Reverse direction vectors and find new base points for the opposite side
+        for (int j = occ_start_id; j <= occ_end_id; j++)
+        {
+          if (RichInfoSegs[i].first.base_point[j].size() != 1) continue;
+          Eigen::Vector3d base_vec_reverse = -RichInfoSegs[i].first.direction[j][0];
+          Eigen::Vector3d base_pt_reverse;
+          if (j == occ_start_id) base_pt_reverse = occ_start_pt;
+          else if (j == occ_end_id) base_pt_reverse = occ_end_pt;
+          else base_pt_reverse = RichInfoSegs[i].first.points.col(j) + base_vec_reverse * (RichInfoSegs[i].first.base_point[j][0] - RichInfoSegs[i].first.points.col(j)).norm();
+
+          // Search outward to find free space on the reversed side
+          double l_upbound = 5 * CTRL_PT_DIST;
+          double l = RESOLUTION;
+          bool found = false;
+          for (; l <= l_upbound; l += RESOLUTION)
+          {
+            Eigen::Vector3d base_pt_temp = base_pt_reverse + l * base_vec_reverse;
+            if (!grid_map_->getInflateOccupancy(base_pt_temp))
+            {
+              RichInfoSegs[i].second.base_point[j][0] = base_pt_temp;
+              RichInfoSegs[i].second.direction[j][0] = base_vec_reverse;
+              found = true;
+              break;
+            }
+          }
+          if (!found) { seg_upbound = i; goto abandon_segment; }
+        }
+
+        // Propagate base points to surrounding control points
+        for (int j = occ_start_id - 1; j >= 0; j--)
+        {
+          RichInfoSegs[i].second.base_point[j][0] = RichInfoSegs[i].second.base_point[occ_start_id][0];
+          RichInfoSegs[i].second.direction[j][0] = RichInfoSegs[i].second.direction[occ_start_id][0];
+        }
+        for (int j = occ_end_id + 1; j < RichInfoSegs[i].second.size; j++)
+        {
+          RichInfoSegs[i].second.base_point[j][0] = RichInfoSegs[i].second.base_point[occ_end_id][0];
+          RichInfoSegs[i].second.direction[j][0] = RichInfoSegs[i].second.direction[occ_end_id][0];
+        }
+      abandon_segment:;
+      }
+    }
+
+    if (seg_upbound == 0)
+    {
+      std::vector<ControlPoints> oneSeg;
+      oneSeg.push_back(cps_);
+      return oneSeg;
+    }
+
+    // Generate all combinations (2 per segment → max 8 total)
+    std::vector<ControlPoints> control_pts_buf;
+    std::vector<int> selection(seg_upbound, 0);
+    selection[0] = -1;
+    int max_traj_nums = static_cast<int>(pow(VARIS, seg_upbound));
+    for (int i = 0; i < max_traj_nums; i++)
+    {
+      int digit_id = 0;
+      selection[digit_id]++;
+      while (digit_id < seg_upbound && selection[digit_id] >= VARIS)
+      {
+        selection[digit_id] = 0;
+        digit_id++;
+        if (digit_id < seg_upbound) selection[digit_id]++;
+      }
+
+      ControlPoints cpsOneSample;
+      cpsOneSample.resize(cps_.size);
+      cpsOneSample.clearance = cps_.clearance;
+      int cp_id = 0, seg_id = 0, cp_of_seg_id = 0;
+      bool abandon = false;
+
+      while (cp_id < cps_.size)
+      {
+        if (seg_id >= seg_upbound || cp_id < segments[seg_id].first || cp_id > segments[seg_id].second)
+        {
+          cpsOneSample.points.col(cp_id) = cps_.points.col(cp_id);
+          cpsOneSample.base_point[cp_id] = cps_.base_point[cp_id];
+          cpsOneSample.direction[cp_id] = cps_.direction[cp_id];
+        }
+        else if (cp_id >= segments[seg_id].first && cp_id <= segments[seg_id].second)
+        {
+          auto &src = (selection[seg_id] == 0) ? RichInfoSegs[seg_id].first : RichInfoSegs[seg_id].second;
+          if (src.size == 0) { abandon = true; break; }
+          cpsOneSample.points.col(cp_id) = src.points.col(cp_of_seg_id);
+          cpsOneSample.base_point[cp_id] = src.base_point[cp_of_seg_id];
+          cpsOneSample.direction[cp_id] = src.direction[cp_of_seg_id];
+          cp_of_seg_id++;
+          if (cp_id == segments[seg_id].second) { cp_of_seg_id = 0; seg_id++; }
+        }
+        cp_id++;
+      }
+
+      if (!abandon) control_pts_buf.push_back(cpsOneSample);
+    }
+
+    if (control_pts_buf.empty())
+    {
+      control_pts_buf.push_back(cps_);
+    }
+
+    return control_pts_buf;
   }
 
   int BsplineOptimizer::earlyExit(void *func_data, const double *x, const double *g, const double fx, const double xnorm, const double gnorm, const double step, int n, int k, int ls)

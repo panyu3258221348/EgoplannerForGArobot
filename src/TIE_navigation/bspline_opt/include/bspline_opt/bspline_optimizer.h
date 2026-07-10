@@ -42,6 +42,18 @@ namespace plan_manage
       flag_temp.resize(size);
       // occupancy.resize(size);
     }
+
+    void segment(ControlPoints &seg, const int start_idx, const int end_idx)
+    {
+      seg.resize(end_idx - start_idx + 1);
+      seg.clearance = clearance;
+      for (int i = start_idx; i <= end_idx; ++i)
+      {
+        seg.points.col(i - start_idx) = points.col(i);
+        seg.base_point[i - start_idx] = base_point[i];
+        seg.direction[i - start_idx] = direction[i];
+      }
+    }
   };
 
   class BsplineOptimizer
@@ -76,9 +88,13 @@ namespace plan_manage
 
     AStar::Ptr a_star_;
     std::vector<Eigen::Vector3d> ref_pts_;
+    std::vector<std::vector<Eigen::Vector3d>> a_star_pathes_;
+    std::vector<std::pair<int, int>> collision_segments_;
 
     std::vector<std::vector<Eigen::Vector3d>> initControlPoints(Eigen::MatrixXd &init_points, bool flag_first_init = true);
+    std::vector<ControlPoints> distinctiveTrajs(void);
     bool BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts); // must be called after initControlPoints()
+    bool BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double &final_cost, const ControlPoints &cps_set, double ts);
     bool BsplineOptimizeTrajRefine(const Eigen::MatrixXd &init_points, const double ts, Eigen::MatrixXd &optimal_points);
 
     inline int getOrder(void) { return order_; }
