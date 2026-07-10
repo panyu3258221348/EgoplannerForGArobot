@@ -754,7 +754,7 @@ void GridMap::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &img)
                     md_.camera_pos_ + mp_.local_update_range_);
 
   /* sliding window: store last 3 cloud frames, re-mark all after reset */
-  constexpr int N_CLOUD_FRAMES = 60;
+  constexpr int N_CLOUD_FRAMES = 10;
   static std::deque<std::vector<Eigen::Vector3d>> cloud_history;
   std::vector<Eigen::Vector3d> frame_pts;
   frame_pts.reserve(latest_cloud.points.size());

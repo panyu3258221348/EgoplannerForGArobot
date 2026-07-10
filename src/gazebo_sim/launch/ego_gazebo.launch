@@ -51,7 +51,7 @@
     <remap from="/odom_world" to="/visual_slam/odom"/>
     <param name="traj_server/time_forward" value="1.0" type="double"/>
     <param name="traj_server/ground_judge" value="0.3" type="double"/>
-    <param name="traj_server/ground_height" value="0.25" type="double"/>
+    <param name="traj_server/ground_height" value="0.10" type="double"/>
   </node>
 
   <node pkg="waypoint_generator" name="waypoint_generator" type="waypoint_generator" output="screen">

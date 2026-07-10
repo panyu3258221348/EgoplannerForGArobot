@@ -135,7 +135,7 @@
   <!-- terrestrial-aerial height constraint -->
     <param name="optimization/lambda_height" value="2.0" type="double"/> <!-- ceiling/floor bound weight, 0 disables -->
     <param name="optimization/max_height" value="2.0" type="double"/>    <!-- max flight height (m) -->
-    <param name="optimization/ground_height" value="0.25" type="double"/> <!-- ground cruise height (m) -->
+    <param name="optimization/ground_height" value="0.10" type="double"/> <!-- ground cruise height (m) -->
     <param name="optimization/lambda_ground" value="0.1" type="double"/> <!-- ground-attraction weight (prefer driving), 0 disables -->
     <param name="optimization/lambda_nonholo" value="0.01" type="double"/> <!-- ground non-holonomic (lateral) weight, 0 disables -->
     <param name="optimization/ground_judge" value="0.3" type="double"/>  <!-- z threshold for ground/aerial mode -->

@@ -149,7 +149,7 @@ namespace plan_manage
     init_pt_ = odom_pos_;
 
     bool success = false;
-    end_pt_ << msg->poses[0].pose.position.x, msg->poses[0].pose.position.y, max(msg->poses[0].pose.position.z, 0.25);
+    end_pt_ << msg->poses[0].pose.position.x, msg->poses[0].pose.position.y, max(msg->poses[0].pose.position.z, 0.10);
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), end_pt_, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
     visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
