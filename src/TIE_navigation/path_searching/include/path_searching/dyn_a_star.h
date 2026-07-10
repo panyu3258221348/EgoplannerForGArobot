@@ -8,7 +8,7 @@
 #include <plan_env/grid_map.h>
 #include <queue>
 
-constexpr double inf = 1 >> 20;
+constexpr double inf = 1e20;
 struct GridNode;
 typedef GridNode *GridNodePtr;
 
@@ -27,6 +27,7 @@ struct GridNode
 		UNDEFINED
 	};
 	Eigen::Vector3i index;
+	int motion_state{0}; //0: ground, 1: aerial
 
 	double gScore{inf}, fScore{inf};
 	GridNodePtr cameFrom{NULL};
@@ -69,6 +70,14 @@ private:
 	Eigen::Vector3i CENTER_IDX_, POOL_SIZE_;
 	const double tie_breaker_ = 1.0 + 1.0 / 10000;
 
+	/* terrestrial-aerial parameters */
+	double ground_judge_{0.3};    // z threshold (m) above which motion is considered aerial (flying)
+	double aerial_penalty_{2.0};  // cost multiplier for moving through aerial space (prefer ground)
+	double flying_cost_base_{5.0}; // extra cost added when taking off from the ground
+	double barrier_max_{0.5};      // max obstacle height (m) a ground node can drive over
+
+	inline bool checkOccupancyForGround(const Eigen::Vector3d &pos, double &obs_height);
+
 	std::vector<GridNodePtr> gridPath_;
 
 	GridNodePtr ***GridNodeMap_;
@@ -79,10 +88,12 @@ private:
 public:
 	typedef std::shared_ptr<AStar> Ptr;
 
-	AStar(){};
+    AStar();
 	~AStar();
 
 	void initGridMap(GridMap::Ptr occ_map, const Eigen::Vector3i pool_size);
+
+	void setParam(ros::NodeHandle &nh);
 
 	bool AstarSearch(const double step_size, Eigen::Vector3d start_pt, Eigen::Vector3d end_pt);
 

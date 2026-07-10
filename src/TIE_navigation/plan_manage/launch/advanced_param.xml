@@ -7,6 +7,7 @@
   <arg name="camera_pose_topic"/>
   <arg name="depth_topic"/>
   <arg name="cloud_topic"/>
+  <arg name="pose_type" default="2"/>
 
   <arg name="cx"/>
   <arg name="cy"/>
@@ -37,7 +38,7 @@
   <arg name="flight_type"/>
 
   <!-- main node -->
-  <node pkg="plan_manage" name="ego_planner_node" type="ego_planner_node" output="screen">
+  <node pkg="plan_manage" name="ego_planner_node" type="ego_planner_node" output="screen" launch-prefix="taskset -c 1">
     <remap from="/odom_world" to="$(arg odometry_topic)"/>
     <remap from="/grid_map/odom" to="$(arg odometry_topic)"/>
     <remap from="/grid_map/cloud" to="$(arg cloud_topic)"/>
@@ -46,7 +47,7 @@
 
     <!-- planning fsm -->
     <param name="fsm/flight_type" value="$(arg flight_type)" type="int"/>
-    <param name="fsm/thresh_replan" value="1.5" type="double"/>
+    <param name="fsm/thresh_replan" value="0.05" type="double"/>
     <param name="fsm/thresh_no_replan" value="2.0" type="double"/>
     <param name="fsm/planning_horizon" value="$(arg planning_horizon)" type="double"/> <!--always set to 1.5 times grater than sensing horizen-->
     <param name="fsm/planning_horizen_time" value="3" type="double"/>
@@ -76,9 +77,9 @@
     <param name="grid_map/local_update_range_x"  value="5.5" /> 
     <param name="grid_map/local_update_range_y"  value="5.5" /> 
     <param name="grid_map/local_update_range_z"  value="4.5" /> 
-    <param name="grid_map/obstacles_inflation"     value="0.099" /> 
+    <param name="grid_map/obstacles_inflation"     value="0.1" />
     <param name="grid_map/local_map_margin" value="30"/>
-    <param name="grid_map/ground_height"        value="-0.01"/>
+    <param name="grid_map/ground_height"        value="0.0"/>
     <!-- camera parameter -->
     <param name="grid_map/cx" value="$(arg cx)"/>
     <param name="grid_map/cy" value="$(arg cy)"/>
@@ -87,8 +88,8 @@
     <!-- depth filter -->
     <param name="grid_map/use_depth_filter" value="true"/>
     <param name="grid_map/depth_filter_tolerance" value="0.15"/>
-    <param name="grid_map/depth_filter_maxdist"   value="5.0"/>
-    <param name="grid_map/depth_filter_mindist"   value="0.2"/>
+    <param name="grid_map/depth_filter_maxdist"   value="3.0"/>
+    <param name="grid_map/depth_filter_mindist"   value="0.05"/>
     <param name="grid_map/depth_filter_margin"    value="1"/>
     <param name="grid_map/k_depth_scaling_factor" value="1000.0"/>
     <param name="grid_map/skip_pixel" value="2"/>
@@ -104,8 +105,9 @@
     <param name="grid_map/virtual_ceil_height"   value="2.5"/>
     <param name="grid_map/visualization_truncate_height"   value="2.4"/>
     <param name="grid_map/show_occ_time"  value="false"/>
-    <param name="grid_map/pose_type"     value="2"/>  
+    <param name="grid_map/pose_type"     value="$(arg pose_type)"/>  
     <param name="grid_map/frame_id"      value="world"/>
+    <param name="grid_map/odometry_topic" value="$(arg odometry_topic)"/>
 
   <!-- planner manager -->
     <param name="manager/max_vel" value="$(arg max_vel)" type="double"/>
@@ -115,14 +117,29 @@
     <param name="manager/feasibility_tolerance" value="0.05" type="double"/>
     <param name="manager/planning_horizon" value="$(arg planning_horizon)" type="double"/>
 
+  <!-- terrestrial-aerial A* front-end (prefer ground travel, fly only to clear obstacles) -->
+    <param name="astar/ground_judge" value="0.3" type="double"/>      <!-- z (m) above which motion is aerial -->
+    <param name="astar/aerial_penalty" value="1.2" type="double"/>    <!-- cost multiplier for aerial motion -->
+    <param name="astar/flying_cost_base" value="1.0" type="double"/>  <!-- extra cost to take off from ground -->
+    <param name="astar/barrier_max" value="0.5" type="double"/>      <!-- max obstacle height (m) to drive over -->
+
   <!-- trajectory optimization -->
     <param name="optimization/lambda_smooth" value="1.0" type="double"/>
     <param name="optimization/lambda_collision" value="0.5" type="double"/>
     <param name="optimization/lambda_feasibility" value="0.1" type="double"/>
-    <param name="optimization/lambda_fitness" value="1.0" type="double"/>
-    <param name="optimization/dist0" value="0.5" type="double"/>
+    <param name="optimization/lambda_fitness" value="3.0" type="double"/>
+    <param name="optimization/dist0" value="0.7" type="double"/>
     <param name="optimization/max_vel" value="$(arg max_vel)" type="double"/>
     <param name="optimization/max_acc" value="$(arg max_acc)" type="double"/>
+
+  <!-- terrestrial-aerial height constraint -->
+    <param name="optimization/lambda_height" value="2.0" type="double"/> <!-- ceiling/floor bound weight, 0 disables -->
+    <param name="optimization/max_height" value="2.0" type="double"/>    <!-- max flight height (m) -->
+    <param name="optimization/ground_height" value="0.25" type="double"/> <!-- ground cruise height (m) -->
+    <param name="optimization/lambda_ground" value="0.1" type="double"/> <!-- ground-attraction weight (prefer driving), 0 disables -->
+    <param name="optimization/lambda_nonholo" value="0.01" type="double"/> <!-- ground non-holonomic (lateral) weight, 0 disables -->
+    <param name="optimization/ground_judge" value="0.3" type="double"/>  <!-- z threshold for ground/aerial mode -->
+    <param name="optimization/ground_clear_radius" value="0.05" type="double"/> <!-- disable ground-attraction within this radius of obstacles (allow climbing) -->
 
     <param name="bspline/limit_vel" value="$(arg max_vel)" type="double"/>
     <param name="bspline/limit_acc" value="$(arg max_acc)" type="double"/>

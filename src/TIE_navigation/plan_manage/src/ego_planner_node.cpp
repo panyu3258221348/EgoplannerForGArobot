@@ -12,9 +12,10 @@ int main(int argc, char **argv)
 
   EGOReplanFSM rebo_replan;
 
+  fprintf(stderr, ">>> FSM init start\n"); fflush(stderr);
   rebo_replan.init(nh);
+  fprintf(stderr, ">>> FSM init done, spinning, use_sim_time=%d\n", (int)ros::Time::isSimTime()); fflush(stderr);
 
-  ros::Duration(1.0).sleep();
   ros::spin();
 
   return 0;

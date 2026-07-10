@@ -24,6 +24,10 @@ int traj_id_;
 double last_yaw_, last_yaw_dot_;
 double time_forward_;
 
+// terrestrial-aerial mode
+double ground_judge_;   // z threshold (m); below it the vehicle drives on the ground
+double ground_height_;  // ground cruise height (m)
+
 void bsplineCallback(plan_manage::BsplineConstPtr msg)
 {
   // parse pos traj
@@ -204,6 +208,18 @@ void cmdCallback(const ros::TimerEvent &e)
   }
   time_last = time_now;
 
+  /*** terrestrial-aerial mode switching ***/
+  // ground mode: the vehicle drives on the ground -> lock the cruise height and
+  // zero the vertical motion so the platform stays level (car-like). aerial
+  // mode: full 3D flight command is kept unchanged.
+  bool ground_mode = pos(2) < ground_judge_;
+  if (ground_mode)
+  {
+    pos(2) = ground_height_;
+    vel(2) = 0.0;
+    acc(2) = 0.0;
+  }
+
   cmd.header.stamp = time_now;
   cmd.header.frame_id = "world";
   cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
@@ -251,6 +267,8 @@ int main(int argc, char **argv)
   cmd.kv[2] = vel_gain[2];
 
   nh.param("traj_server/time_forward", time_forward_, -1.0);
+  nh.param("traj_server/ground_judge", ground_judge_, 0.3);
+  nh.param("traj_server/ground_height", ground_height_, 0.2);
   last_yaw_ = 0.0;
   last_yaw_dot_ = 0.0;
 

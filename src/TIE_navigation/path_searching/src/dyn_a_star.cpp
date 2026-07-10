@@ -3,8 +3,11 @@
 using namespace std;
 using namespace Eigen;
 
+AStar::AStar() : GridNodeMap_(nullptr) {}
+
 AStar::~AStar()
 {
+    if (!GridNodeMap_) return;
     for (int i = 0; i < POOL_SIZE_(0); i++)
         for (int j = 0; j < POOL_SIZE_(1); j++)
             for (int k = 0; k < POOL_SIZE_(2); k++)
@@ -31,6 +34,29 @@ void AStar::initGridMap(GridMap::Ptr occ_map, const Eigen::Vector3i pool_size)
     }
 
     grid_map_ = occ_map;
+}
+
+void AStar::setParam(ros::NodeHandle &nh)
+{
+    nh.param("astar/ground_judge", ground_judge_, 0.3);
+    nh.param("astar/aerial_penalty", aerial_penalty_, 2.0);
+    nh.param("astar/flying_cost_base", flying_cost_base_, 5.0);
+    nh.param("astar/barrier_max", barrier_max_, 0.5);
+}
+
+bool AStar::checkOccupancyForGround(const Eigen::Vector3d &pos, double &obs_height)
+{
+    /* For ground vehicles: check if an obstacle is low enough to drive over.
+       Returns true if the position is TRAVERSABLE (can drive over or is free).
+       Sets obs_height to the height of the tallest obstacle at this xy. */
+    obs_height = 0.0;
+    double res = grid_map_->getResolution();
+    for (double z = pos(2); z < pos(2) + barrier_max_ + res; z += res) {
+        Eigen::Vector3d pt(pos(0), pos(1), z);
+        if (grid_map_->getInflateOccupancy(pt) > 0)
+            obs_height = std::max(obs_height, z - pos(2));
+    }
+    return obs_height < barrier_max_;  // traversable if all obstacles are below barrier_max
 }
 
 double AStar::getDiagHeu(GridNodePtr node1, GridNodePtr node2)
@@ -148,6 +174,7 @@ bool AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d end_
 
     startPtr->index = start_idx;
     startPtr->rounds = rounds_;
+    startPtr->motion_state = (start_pt(2) >= ground_judge_) ? 1 : 0;
     startPtr->gScore = 0;
     startPtr->fScore = getHeu(startPtr, endPtr);
     startPtr->state = GridNode::OPENSET; //put start node in open set
@@ -208,12 +235,34 @@ bool AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d end_
 
                     neighborPtr->rounds = rounds_;
 
+                    double nz = Index2Coord(neighborIdx)(2);
+                    if (nz < 0.0) continue;
+                    neighborPtr->motion_state = (nz >= ground_judge_) ? 1 : 0;
+
                     if (checkOccupancy(Index2Coord(neighborPtr->index)))
                     {
-                        continue;
+                        if (neighborPtr->motion_state == 1)
+                            continue;  // aerial node, strict check
+                        double obs_h = 0;
+                        if (!checkOccupancyForGround(Index2Coord(neighborPtr->index), obs_h))
+                            continue;  // too tall to drive over
                     }
 
                     double static_cost = sqrt(dx * dx + dy * dy + dz * dz);
+
+                    /* terrestrial-aerial cost: penalize aerial movement */
+                    double neighbor_z = Index2Coord(neighborIdx)(2);
+                    double current_z = Index2Coord(current->index)(2);
+                    if (neighbor_z >= ground_judge_)
+                    {
+                        static_cost *= aerial_penalty_;
+                    }
+                    /* add takeoff cost when transitioning from ground to air */
+                    if (current_z < ground_judge_ && neighbor_z >= ground_judge_)
+                    {
+                        static_cost += flying_cost_base_ * step_size_;
+                    }
+
                     tentative_gScore = current->gScore + static_cost;
 
                     if (!flag_explored)

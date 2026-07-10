@@ -34,7 +34,7 @@
 #include <cv_bridge/cv_bridge.h>
 
 //#include <cloud_banchmark/cloud_banchmarkConfig.h>
-#include "depth_render.cuh"
+#include "cpu_depth_render.h"
 #include "quadrotor_msgs/PositionCommand.h"
 using namespace cv;
 using namespace std;
@@ -47,7 +47,7 @@ cv::Mat depth_mat;
 int width, height;
 double fx,fy,cx,cy;
 
-DepthRender depthrender;
+CpuDepthRender depthrender;
 ros::Publisher pub_depth;
 ros::Publisher pub_color;
 ros::Publisher pub_pose;
@@ -274,14 +274,23 @@ void render_currentpose()
 
   Matrix4d cam_pose = cam2world.inverse();
 
-  double pose[4 * 4];
+  depthrender.render(cam_pose, depth_hostptr);
 
-  for(int i = 0; i < 4; i ++)
-    for(int j = 0; j < 4; j ++)
-      pose[j + 4 * i] = cam_pose(i, j);
-
-  depthrender.render_pose(pose, depth_hostptr);
-  //depthrender.render_pose(cam_pose, depth_hostptr);
+  int visible_cnt = 0;
+  double min_d = 999, max_d = 0;
+  for (int i = 0; i < width * height; i++) {
+    if (depth_hostptr[i] > 0 && depth_hostptr[i] < INT_MAX/2) {
+      visible_cnt++;
+      double d = depth_hostptr[i] / 1000.0;
+      if (d < min_d) min_d = d;
+      if (d > max_d) max_d = d;
+    }
+  }
+  static int frame_cnt = 0;
+  if (frame_cnt++ % 30 == 0)
+    ROS_WARN("Depth cam pos(%.1f,%.1f,%.1f), visible=%d, range(%.1f~%.1f)m",
+             cam2world(0,3), cam2world(1,3), cam2world(2,3),
+             visible_cnt, min_d, max_d);
 
   depth_mat = cv::Mat::zeros(height, width, CV_32FC1);
   double min = 0.5;
@@ -345,9 +354,9 @@ int main(int argc, char **argv)
   //               0.0, 0.0, 0.0, 1.0;
 
   cam02body << 0.0, 0.0, 1.0, 0.0,
-              -1.0, 0.0, 0.0, 0.0,
-               0.0, -1.0,0.0, 0.0,
-               0.0, 0.0, 0.0, 1.0;
+               -1.0, 0.0, 0.0, 0.0,
+                0.0, -1.0,0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0;
 
   //init cam2world transformation
   cam2world = Matrix4d::Identity();

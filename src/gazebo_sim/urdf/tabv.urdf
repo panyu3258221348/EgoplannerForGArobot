@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<robot name="tabv">
+
+  <link name="base_link">
+    <inertial>
+      <mass value="1.5"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.08"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.20" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://gazebo_sim/meshes/TABV.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0"/>
+      <geometry><box size="0.5 0.4 0.1"/></geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="base_link">
+    <turnGravityOff>false</turnGravityOff>
+  </gazebo>
+
+  <!-- depth_cam link (TF帧可见) -->
+  <link name="depth_cam">
+    <visual>
+      <origin xyz="-0.02 0 0" rpy="0 1.57 0"/>
+      <geometry><cylinder radius="0.015" length="0.04"/></geometry>
+      <material name="black"><color rgba="0.1 0.1 0.1 1"/></material>
+    </visual>
+  </link>
+  <joint name="cam_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="depth_cam"/>
+    <origin xyz="0.1 0 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="depth_cam">
+    <sensor type="depth" name="d435_camera">
+      <always_on>1</always_on>
+      <update_rate>30</update_rate>
+      <camera>
+        <horizontal_fov>1.51844</horizontal_fov>
+        <image><width>640</width><height>480</height></image>
+        <clip><near>0.05</near><far>8.0</far></clip>
+      </camera>
+      <plugin name="d435_plugin" filename="libgazebo_ros_depth_camera.so">
+        <cameraName>d435</cameraName>
+        <alwaysOn>true</alwaysOn>
+        <updateRate>30</updateRate>
+        <imageTopicName>color/image_raw</imageTopicName>
+        <depthImageTopicName>depth/image_raw</depthImageTopicName>
+        <depthImageCameraInfoTopicName>depth/camera_info</depthImageCameraInfoTopicName>
+        <pointCloudTopicName>depth/points</pointCloudTopicName>
+        <frameName>depth_cam</frameName>
+        <clipNear>0.05</clipNear>
+        <clipFar>8.0</clipFar>
+        <hackBaseline>0.0</hackBaseline>
+        <CxPrime>0</CxPrime>
+        <Cx>320.0</Cx><Cy>240.0</Cy>
+        <focalLength>337.2</focalLength>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- base_link position marker (red box) -->
+  <link name="base_marker">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.08 0.08 0.08"/></geometry>
+    </visual>
+  </link>
+  <gazebo reference="base_marker">
+    <material>Gazebo/Red</material>
+  </gazebo>
+  <joint name="marker_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_marker"/>
+  </joint>
+
+  <!-- collision box visual (blue) -->
+  <link name="collision_viz">
+    <visual>
+      <origin xyz="0 0 -0.05" rpy="0 0 0"/>
+      <geometry><box size="0.5 0.4 0.1"/></geometry>
+    </visual>
+  </link>
+  <gazebo reference="collision_viz">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+  <joint name="collision_viz_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="collision_viz"/>
+  </joint>
+
+  <gazebo>
+    <plugin name="p3d" filename="libgazebo_ros_p3d.so">
+      <alwaysOn>true</alwaysOn>
+      <updateRate>100</updateRate>
+      <bodyName>base_link</bodyName>
+      <topicName>ground_truth/odom</topicName>
+      <frameName>world</frameName>
+      <xyzOffsets>0 0 0</xyzOffsets>
+      <rpyOffsets>0 0 0</rpyOffsets>
+    </plugin>
+  </gazebo>
+
+</robot>

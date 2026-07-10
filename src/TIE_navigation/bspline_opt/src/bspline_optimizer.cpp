@@ -16,6 +16,14 @@ namespace plan_manage
     nh.param("optimization/max_vel", max_vel_, -1.0);
     nh.param("optimization/max_acc", max_acc_, -1.0);
 
+    nh.param("optimization/lambda_height", lambda_height_, 0.0);
+    nh.param("optimization/max_height", max_height_, 2.0);
+    nh.param("optimization/ground_height", ground_height_, 0.2);
+    nh.param("optimization/lambda_ground", lambda_ground_, 0.0);
+    nh.param("optimization/lambda_nonholo", lambda_nonholo_, 0.0);
+    nh.param("optimization/ground_judge", ground_judge_, 0.3);
+    nh.param("optimization/ground_clear_radius", ground_clear_radius_, 1.5);
+
     nh.param("optimization/order", order_, 3);
   }
 
@@ -105,9 +113,14 @@ namespace plan_manage
     {
       //cout << "in=" << in.transpose() << " out=" << out.transpose() << endl;
       Eigen::Vector3d in(init_points.col(segment_ids[i].first)), out(init_points.col(segment_ids[i].second));
-      if (a_star_->AstarSearch(/*(in-out).norm()/10+0.05*/ 0.1, in, out))
+      if (a_star_->AstarSearch(/*(in-out).norm()/10+0.05*/ 0.2, in, out))
       {
-        a_star_pathes.push_back(a_star_->getPath());
+        auto path = a_star_->getPath();
+        double zmin = 999, zmax = -999;
+        for (auto& p : path) { zmin = std::min(zmin, p(2)); zmax = std::max(zmax, p(2)); }
+        printf("[A*#%zu] seg[%zu] in=(%.1f,%.1f,%.1f) out=(%.1f,%.1f,%.1f) path=%zu pts  z=[%.2f..%.2f]\n",
+               i, i, in(0), in(1), in(2), out(0), out(1), out(2), path.size(), zmin, zmax);
+        a_star_pathes.push_back(path);
       }
       else
       {
@@ -192,36 +205,9 @@ namespace plan_manage
       for (int j = segment_ids[i].first + 1; j < segment_ids[i].second; ++j)
       {
         Eigen::Vector3d ctrl_pts_law(cps_.points.col(j + 1) - cps_.points.col(j - 1)), intersection_point;
-        int Astar_id = a_star_pathes[i].size() / 2, last_Astar_id; // Let "Astar_id = id_of_the_most_far_away_Astar_point" will be better, but it needs more computation
-        double val = (a_star_pathes[i][Astar_id] - cps_.points.col(j)).dot(ctrl_pts_law), last_val = val;
-        while (Astar_id >= 0 && Astar_id < (int)a_star_pathes[i].size())
+        if (findIntersectionPoint(a_star_pathes[i], cps_.points.col(j), ctrl_pts_law, intersection_point))
         {
-          last_Astar_id = Astar_id;
-
-          if (val >= 0)
-            --Astar_id;
-          else
-            ++Astar_id;
-
-          val = (a_star_pathes[i][Astar_id] - cps_.points.col(j)).dot(ctrl_pts_law);
-
-          if (val * last_val <= 0 && (abs(val) > 0 || abs(last_val) > 0)) // val = last_val = 0.0 is not allowed
-          {
-            intersection_point =
-                a_star_pathes[i][Astar_id] +
-                ((a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id]) *
-                 (ctrl_pts_law.dot(cps_.points.col(j) - a_star_pathes[i][Astar_id]) / ctrl_pts_law.dot(a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id])) // = t
-                );
-
-            //cout << "i=" << i << " j=" << j << " Astar_id=" << Astar_id << " last_Astar_id=" << last_Astar_id << " intersection_point = " << intersection_point.transpose() << endl;
-
-            got_intersection_id = j;
-            break;
-          }
-        }
-
-        if (got_intersection_id >= 0)
-        {
+          got_intersection_id = j;
           cps_.flag_temp[j] = true;
           double length = (intersection_point - cps_.points.col(j)).norm();
           if (length > 1e-5)
@@ -243,41 +229,20 @@ namespace plan_manage
         }
       }
 
-      /* Corner case: the segment length is too short. Here the control points may outside the A* path, leading to opposite gradient direction. So I have to take special care of it */
+      /* Corner case: the segment length is too short. */
       if (segment_ids[i].second - segment_ids[i].first == 1)
       {
         Eigen::Vector3d ctrl_pts_law(cps_.points.col(segment_ids[i].second) - cps_.points.col(segment_ids[i].first)), intersection_point;
         Eigen::Vector3d middle_point = (cps_.points.col(segment_ids[i].second) + cps_.points.col(segment_ids[i].first)) / 2;
-        int Astar_id = a_star_pathes[i].size() / 2, last_Astar_id; // Let "Astar_id = id_of_the_most_far_away_Astar_point" will be better, but it needs more computation
-        double val = (a_star_pathes[i][Astar_id] - middle_point).dot(ctrl_pts_law), last_val = val;
-        while (Astar_id >= 0 && Astar_id < (int)a_star_pathes[i].size())
+        if (findIntersectionPoint(a_star_pathes[i], middle_point, ctrl_pts_law, intersection_point))
         {
-          last_Astar_id = Astar_id;
-
-          if (val >= 0)
-            --Astar_id;
-          else
-            ++Astar_id;
-
-          val = (a_star_pathes[i][Astar_id] - middle_point).dot(ctrl_pts_law);
-
-          if (val * last_val <= 0 && (abs(val) > 0 || abs(last_val) > 0)) // val = last_val = 0.0 is not allowed
+          if ((intersection_point - middle_point).norm() > 0.01)
           {
-            intersection_point =
-                a_star_pathes[i][Astar_id] +
-                ((a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id]) *
-                 (ctrl_pts_law.dot(middle_point - a_star_pathes[i][Astar_id]) / ctrl_pts_law.dot(a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id])) // = t
-                );
+            cps_.flag_temp[segment_ids[i].first] = true;
+            cps_.base_point[segment_ids[i].first].push_back(cps_.points.col(segment_ids[i].first));
+            cps_.direction[segment_ids[i].first].push_back((intersection_point - middle_point).normalized());
 
-            if ((intersection_point - middle_point).norm() > 0.01) // 1cm.
-            {
-              cps_.flag_temp[segment_ids[i].first] = true;
-              cps_.base_point[segment_ids[i].first].push_back(cps_.points.col(segment_ids[i].first));
-              cps_.direction[segment_ids[i].first].push_back((intersection_point - middle_point).normalized());
-
-              got_intersection_id = segment_ids[i].first;
-            }
-            break;
+            got_intersection_id = segment_ids[i].first;
           }
         }
       }
@@ -307,6 +272,36 @@ namespace plan_manage
     }
 
     return a_star_pathes;
+  }
+
+  bool BsplineOptimizer::findIntersectionPoint(const std::vector<Eigen::Vector3d> &a_star_path,
+                                               const Eigen::Vector3d &point,
+                                               const Eigen::Vector3d &ctrl_pts_law,
+                                               Eigen::Vector3d &intersection_point)
+  {
+    int Astar_id = a_star_path.size() / 2, last_Astar_id;
+    double val = (a_star_path[Astar_id] - point).dot(ctrl_pts_law), last_val = val;
+    while (Astar_id >= 0 && Astar_id < (int)a_star_path.size())
+    {
+      last_Astar_id = Astar_id;
+
+      if (val >= 0)
+        --Astar_id;
+      else
+        ++Astar_id;
+
+      val = (a_star_path[Astar_id] - point).dot(ctrl_pts_law);
+
+      if (val * last_val <= 0 && (abs(val) > 0 || abs(last_val) > 0))
+      {
+        intersection_point =
+            a_star_path[Astar_id] +
+            ((a_star_path[Astar_id] - a_star_path[last_Astar_id]) *
+             (ctrl_pts_law.dot(point - a_star_path[Astar_id]) / ctrl_pts_law.dot(a_star_path[Astar_id] - a_star_path[last_Astar_id])));
+        return true;
+      }
+    }
+    return false;
   }
 
   int BsplineOptimizer::earlyExit(void *func_data, const double *x, const double *g, const double fx, const double xnorm, const double gnorm, const double step, int n, int k, int ls)
@@ -410,13 +405,124 @@ namespace plan_manage
     }
   }
 
-  void BsplineOptimizer::calcSmoothnessCost(const Eigen::MatrixXd &q, double &cost,
-                                            Eigen::MatrixXd &gradient, bool falg_use_jerk /* = true*/)
+  void BsplineOptimizer::calcHeightCost(const Eigen::MatrixXd &q, double &cost,
+                                        Eigen::MatrixXd &gradient)
   {
-
+    /* Terrestrial-aerial height constraint.
+       - Hard bounds: keep the trajectory below max_height (ceiling) and above
+         ground_height (floor).
+       - Ground attraction: where the ground beneath a control point is
+         traversable (free), pull the control point down onto the ground so the
+         vehicle drives instead of flies. Above obstacles (ground occupied) no
+         attraction is applied, so the vehicle is free to climb and fly over. */
     cost = 0.0;
 
-    if (falg_use_jerk)
+    int end_idx = q.cols() - order_;
+    for (int i = order_; i < end_idx; ++i)
+    {
+      double z = q(2, i);
+
+      /* ceiling */
+      if (z > max_height_)
+      {
+        double diff = z - max_height_;
+        cost += lambda_height_ * diff * diff;
+        gradient(2, i) += lambda_height_ * 2.0 * diff;
+      }
+      /* floor */
+      if (z < ground_height_)
+      {
+        double diff = z - ground_height_;
+        cost += lambda_height_ * diff * diff;
+        gradient(2, i) += lambda_height_ * 2.0 * diff;
+      }
+      /* ground attraction over traversable ground */
+      else if (lambda_ground_ > 0.0)
+      {
+        Eigen::Vector3d ground_probe(q(0, i), q(1, i), ground_height_);
+        if (grid_map_->getInflateOccupancy(ground_probe) == 0) // ground below is free
+        {
+          /* Only pull down if there is no obstacle nearby. Near a wall/obstacle
+             the vehicle must be free to climb over it, so ground-attraction is
+             disabled within ground_clear_radius_ horizontally. The neighbourhood
+             is scanned over several radii and heights so that even a thin, tall
+             wall is reliably detected. */
+          bool near_obstacle = false;
+          double res = grid_map_->getResolution();
+          for (double r = res; r <= ground_clear_radius_ + 1e-3 && !near_obstacle; r += res)
+          {
+            for (double ang = 0.0; ang < 6.28; ang += M_PI / 6)
+            {
+              double px = q(0, i) + r * cos(ang);
+              double py = q(1, i) + r * sin(ang);
+              for (double pz = ground_height_ + res; pz <= max_height_; pz += 3 * res)
+              {
+                if (grid_map_->getInflateOccupancy(Eigen::Vector3d(px, py, pz)) == 1)
+                {
+                  near_obstacle = true;
+                  break;
+                }
+              }
+              if (near_obstacle)
+                break;
+            }
+          }
+
+          if (!near_obstacle)
+          {
+            double diff = z - ground_height_;
+            cost += lambda_ground_ * diff * diff;
+            gradient(2, i) += lambda_ground_ * 2.0 * diff;
+          }
+        }
+      }
+    }
+  }
+
+  void BsplineOptimizer::calcGroundNonHolonomicCost(const Eigen::MatrixXd &q, double &cost,
+                                                    Eigen::MatrixXd &gradient)
+  {
+    /* Ground non-holonomic (lateral) regularizer.
+       For control points in ground mode, penalize the horizontal lateral term
+       cross = vx*ay - vy*ax (proportional to |v| * lateral_acc). This discourages
+       sideways / sharp swerving on the ground, approximating car-like motion.
+       Only horizontal (x, y) components are involved. */
+    cost = 0.0;
+
+    if (lambda_nonholo_ <= 0.0)
+      return;
+
+    int end_idx = q.cols() - order_;
+    for (int i = order_; i < end_idx - 1; ++i)
+    {
+      if (q(2, i + 1) >= ground_judge_) // only apply on ground segments
+        continue;
+
+      double vx = q(0, i + 1) - q(0, i);
+      double vy = q(1, i + 1) - q(1, i);
+      double ax = q(0, i + 2) - 2 * q(0, i + 1) + q(0, i);
+      double ay = q(1, i + 2) - 2 * q(1, i + 1) + q(1, i);
+
+      double cross = vx * ay - vy * ax;
+      cost += lambda_nonholo_ * cross * cross;
+
+      double g = lambda_nonholo_ * 2.0 * cross;
+
+      gradient(0, i) += g * (-ay - vy);
+      gradient(1, i) += g * (vx + ax);
+      gradient(0, i + 1) += g * (ay + 2 * vy);
+      gradient(1, i + 1) += g * (-2 * vx - ax);
+      gradient(0, i + 2) += g * (-vy);
+      gradient(1, i + 2) += g * (vx);
+    }
+  }
+
+  void BsplineOptimizer::calcSmoothnessCost(const Eigen::MatrixXd &q, double &cost,
+                                            Eigen::MatrixXd &gradient, bool flag_use_jerk /* = true*/)
+  {
+    cost = 0.0;
+
+    if (flag_use_jerk)
     {
       Eigen::Vector3d jerk, temp_j;
 
@@ -452,154 +558,23 @@ namespace plan_manage
   }
 
   void BsplineOptimizer::calcFeasibilityCost(const Eigen::MatrixXd &q, double &cost,
-                                             Eigen::MatrixXd &gradient)
+                                              Eigen::MatrixXd &gradient)
   {
 
-    //#define SECOND_DERIVATIVE_CONTINOUS
-
-#ifdef SECOND_DERIVATIVE_CONTINOUS
-
     cost = 0.0;
-    double demarcation = 1.0; // 1m/s, 1m/s/s
-    double ar = 3 * demarcation, br = -3 * pow(demarcation, 2), cr = pow(demarcation, 3);
-    double al = ar, bl = -br, cl = cr;
-
-    /* abbreviation */
-    double ts, ts_inv2, ts_inv3;
+    double ts, ts_inv2;
     ts = bspline_interval_;
     ts_inv2 = 1 / ts / ts;
-    ts_inv3 = 1 / ts / ts / ts;
 
-    /* velocity feasibility */
     for (int i = 0; i < q.cols() - 1; i++)
     {
       Eigen::Vector3d vi = (q.col(i + 1) - q.col(i)) / ts;
 
-      for (int j = 0; j < 3; j++)
-      {
-        if (vi(j) > max_vel_ + demarcation)
-        {
-          double diff = vi(j) - max_vel_;
-          cost += (ar * diff * diff + br * diff + cr) * ts_inv3; // multiply ts_inv3 to make vel and acc has similar magnitude
-
-          double grad = (2.0 * ar * diff + br) / ts * ts_inv3;
-          gradient(j, i + 0) += -grad;
-          gradient(j, i + 1) += grad;
-        }
-        else if (vi(j) > max_vel_)
-        {
-          double diff = vi(j) - max_vel_;
-          cost += pow(diff, 3) * ts_inv3;
-          ;
-
-          double grad = 3 * diff * diff / ts * ts_inv3;
-          ;
-          gradient(j, i + 0) += -grad;
-          gradient(j, i + 1) += grad;
-        }
-        else if (vi(j) < -(max_vel_ + demarcation))
-        {
-          double diff = vi(j) + max_vel_;
-          cost += (al * diff * diff + bl * diff + cl) * ts_inv3;
-
-          double grad = (2.0 * al * diff + bl) / ts * ts_inv3;
-          gradient(j, i + 0) += -grad;
-          gradient(j, i + 1) += grad;
-        }
-        else if (vi(j) < -max_vel_)
-        {
-          double diff = vi(j) + max_vel_;
-          cost += -pow(diff, 3) * ts_inv3;
-
-          double grad = -3 * diff * diff / ts * ts_inv3;
-          gradient(j, i + 0) += -grad;
-          gradient(j, i + 1) += grad;
-        }
-        else
-        {
-          /* nothing happened */
-        }
-      }
-    }
-
-    /* acceleration feasibility */
-    for (int i = 0; i < q.cols() - 2; i++)
-    {
-      Eigen::Vector3d ai = (q.col(i + 2) - 2 * q.col(i + 1) + q.col(i)) * ts_inv2;
-
-      for (int j = 0; j < 3; j++)
-      {
-        if (ai(j) > max_acc_ + demarcation)
-        {
-          double diff = ai(j) - max_acc_;
-          cost += ar * diff * diff + br * diff + cr;
-
-          double grad = (2.0 * ar * diff + br) * ts_inv2;
-          gradient(j, i + 0) += grad;
-          gradient(j, i + 1) += -2 * grad;
-          gradient(j, i + 2) += grad;
-        }
-        else if (ai(j) > max_acc_)
-        {
-          double diff = ai(j) - max_acc_;
-          cost += pow(diff, 3);
-
-          double grad = 3 * diff * diff * ts_inv2;
-          gradient(j, i + 0) += grad;
-          gradient(j, i + 1) += -2 * grad;
-          gradient(j, i + 2) += grad;
-        }
-        else if (ai(j) < -(max_acc_ + demarcation))
-        {
-          double diff = ai(j) + max_acc_;
-          cost += al * diff * diff + bl * diff + cl;
-
-          double grad = (2.0 * al * diff + bl) * ts_inv2;
-          gradient(j, i + 0) += grad;
-          gradient(j, i + 1) += -2 * grad;
-          gradient(j, i + 2) += grad;
-        }
-        else if (ai(j) < -max_acc_)
-        {
-          double diff = ai(j) + max_acc_;
-          cost += -pow(diff, 3);
-
-          double grad = -3 * diff * diff * ts_inv2;
-          gradient(j, i + 0) += grad;
-          gradient(j, i + 1) += -2 * grad;
-          gradient(j, i + 2) += grad;
-        }
-        else
-        {
-          /* nothing happened */
-        }
-      }
-    }
-
-#else
-
-    cost = 0.0;
-    /* abbreviation */
-    double ts, /*vm2, am2, */ ts_inv2;
-    // vm2 = max_vel_ * max_vel_;
-    // am2 = max_acc_ * max_acc_;
-
-    ts = bspline_interval_;
-    ts_inv2 = 1 / ts / ts;
-
-    /* velocity feasibility */
-    for (int i = 0; i < q.cols() - 1; i++)
-    {
-      Eigen::Vector3d vi = (q.col(i + 1) - q.col(i)) / ts;
-
-      //cout << "temp_v * vi=" ;
       for (int j = 0; j < 3; j++)
       {
         if (vi(j) > max_vel_)
         {
-          // cout << "fuck VEL" << endl;
-          // cout << vi(j) << endl;
-          cost += pow(vi(j) - max_vel_, 2) * ts_inv2; // multiply ts_inv3 to make vel and acc has similar magnitude
+          cost += pow(vi(j) - max_vel_, 2) * ts_inv2;
 
           gradient(j, i + 0) += -2 * (vi(j) - max_vel_) / ts * ts_inv2;
           gradient(j, i + 1) += 2 * (vi(j) - max_vel_) / ts * ts_inv2;
@@ -611,25 +586,17 @@ namespace plan_manage
           gradient(j, i + 0) += -2 * (vi(j) + max_vel_) / ts * ts_inv2;
           gradient(j, i + 1) += 2 * (vi(j) + max_vel_) / ts * ts_inv2;
         }
-        else
-        {
-          /* code */
-        }
       }
     }
 
-    /* acceleration feasibility */
     for (int i = 0; i < q.cols() - 2; i++)
     {
       Eigen::Vector3d ai = (q.col(i + 2) - 2 * q.col(i + 1) + q.col(i)) * ts_inv2;
 
-      //cout << "temp_a * ai=" ;
       for (int j = 0; j < 3; j++)
       {
         if (ai(j) > max_acc_)
         {
-          // cout << "fuck ACC" << endl;
-          // cout << ai(j) << endl;
           cost += pow(ai(j) - max_acc_, 2);
 
           gradient(j, i + 0) += 2 * (ai(j) - max_acc_) * ts_inv2;
@@ -644,15 +611,8 @@ namespace plan_manage
           gradient(j, i + 1) += -4 * (ai(j) + max_acc_) * ts_inv2;
           gradient(j, i + 2) += 2 * (ai(j) + max_acc_) * ts_inv2;
         }
-        else
-        {
-          /* code */
-        }
       }
-      //cout << endl;
     }
-
-#endif
   }
 
   bool BsplineOptimizer::check_collision_and_rebound(void)
@@ -735,9 +695,14 @@ namespace plan_manage
       {
         /*** a star search ***/
         Eigen::Vector3d in(cps_.points.col(segment_ids[i].first)), out(cps_.points.col(segment_ids[i].second));
-        if (a_star_->AstarSearch(/*(in-out).norm()/10+0.05*/ 0.1, in, out))
+        if (a_star_->AstarSearch(/*(in-out).norm()/10+0.05*/ 0.2, in, out))
         {
-          a_star_pathes.push_back(a_star_->getPath());
+          auto path = a_star_->getPath();
+          double zmin = 999, zmax = -999;
+          for (auto& p : path) { zmin = std::min(zmin, p(2)); zmax = std::max(zmax, p(2)); }
+          printf("[A*-rebound#%zu] in=(%.1f,%.1f,%.1f) out=(%.1f,%.1f,%.1f) path=%zu pts  z=[%.2f..%.2f]\n",
+                 i, in(0), in(1), in(2), out(0), out(1), out(2), path.size(), zmin, zmax);
+          a_star_pathes.push_back(path);
         }
         else
         {
@@ -759,36 +724,9 @@ namespace plan_manage
         for (int j = segment_ids[i].first + 1; j < segment_ids[i].second; ++j)
         {
           Eigen::Vector3d ctrl_pts_law(cps_.points.col(j + 1) - cps_.points.col(j - 1)), intersection_point;
-          int Astar_id = a_star_pathes[i].size() / 2, last_Astar_id; // Let "Astar_id = id_of_the_most_far_away_Astar_point" will be better, but it needs more computation
-          double val = (a_star_pathes[i][Astar_id] - cps_.points.col(j)).dot(ctrl_pts_law), last_val = val;
-          while (Astar_id >= 0 && Astar_id < (int)a_star_pathes[i].size())
+          if (findIntersectionPoint(a_star_pathes[i], cps_.points.col(j), ctrl_pts_law, intersection_point))
           {
-            last_Astar_id = Astar_id;
-
-            if (val >= 0)
-              --Astar_id;
-            else
-              ++Astar_id;
-
-            val = (a_star_pathes[i][Astar_id] - cps_.points.col(j)).dot(ctrl_pts_law);
-
-            // cout << val << endl;
-
-            if (val * last_val <= 0 && (abs(val) > 0 || abs(last_val) > 0)) // val = last_val = 0.0 is not allowed
-            {
-              intersection_point =
-                  a_star_pathes[i][Astar_id] +
-                  ((a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id]) *
-                   (ctrl_pts_law.dot(cps_.points.col(j) - a_star_pathes[i][Astar_id]) / ctrl_pts_law.dot(a_star_pathes[i][Astar_id] - a_star_pathes[i][last_Astar_id])) // = t
-                  );
-
-              got_intersection_id = j;
-              break;
-            }
-          }
-
-          if (got_intersection_id >= 0)
-          {
+            got_intersection_id = j;
             cps_.flag_temp[j] = true;
             double length = (intersection_point - cps_.points.col(j)).norm();
             if (length > 1e-5)
@@ -894,9 +832,9 @@ namespace plan_manage
 
       lbfgs::lbfgs_parameter_t lbfgs_params;
       lbfgs::lbfgs_load_default_parameters(&lbfgs_params);
-      lbfgs_params.mem_size = 16;
+      lbfgs_params.mem_size = 32;
       lbfgs_params.max_iterations = 200;
-      lbfgs_params.g_epsilon = 0.01;
+      lbfgs_params.g_epsilon = 0.1;
 
       /* ---------- optimize ---------- */
       t1 = ros::Time::now();
@@ -990,9 +928,9 @@ namespace plan_manage
     {
       lbfgs::lbfgs_parameter_t lbfgs_params;
       lbfgs::lbfgs_load_default_parameters(&lbfgs_params);
-      lbfgs_params.mem_size = 16;
+      lbfgs_params.mem_size = 32;
       lbfgs_params.max_iterations = 200;
-      lbfgs_params.g_epsilon = 0.001;
+      lbfgs_params.g_epsilon = 0.01;
 
       int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRefine, NULL, NULL, this, &lbfgs_params);
       if (result == lbfgs::LBFGS_CONVERGENCE ||
@@ -1032,7 +970,7 @@ namespace plan_manage
         lambda4_ *= 2;
 
       iter_count++;
-    } while (!flag_safe && iter_count <= 0);
+    } while (!flag_safe && iter_count <= 1);
 
     lambda4_ = origin_lambda4;
 
@@ -1057,10 +995,16 @@ namespace plan_manage
     calcDistanceCostRebound(cps_.points, f_distance, g_distance, iter_num_, f_smoothness);
     calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
 
-    f_combine = lambda1_ * f_smoothness + new_lambda2_ * f_distance + lambda3_ * f_feasibility;
+    double f_height = 0.0, f_nonholo = 0.0;
+    Eigen::MatrixXd g_height = Eigen::MatrixXd::Zero(3, cps_.size);
+    Eigen::MatrixXd g_nonholo = Eigen::MatrixXd::Zero(3, cps_.size);
+    calcHeightCost(cps_.points, f_height, g_height);
+    calcGroundNonHolonomicCost(cps_.points, f_nonholo, g_nonholo);
+
+    f_combine = lambda1_ * f_smoothness + new_lambda2_ * f_distance + lambda3_ * f_feasibility + f_height + f_nonholo;
     //printf("origin %f %f %f %f\n", f_smoothness, f_distance, f_feasibility, f_combine);
 
-    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance + lambda3_ * g_feasibility;
+    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance + lambda3_ * g_feasibility + g_height + g_nonholo;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }
 
@@ -1082,11 +1026,17 @@ namespace plan_manage
     calcFitnessCost(cps_.points, f_fitness, g_fitness);
     calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
 
+    double f_height = 0.0, f_nonholo = 0.0;
+    Eigen::MatrixXd g_height = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    Eigen::MatrixXd g_nonholo = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    calcHeightCost(cps_.points, f_height, g_height);
+    calcGroundNonHolonomicCost(cps_.points, f_nonholo, g_nonholo);
+
     /* ---------- convert to solver format...---------- */
-    f_combine = lambda1_ * f_smoothness + lambda4_ * f_fitness + lambda3_ * f_feasibility;
+    f_combine = lambda1_ * f_smoothness + lambda4_ * f_fitness + lambda3_ * f_feasibility + f_height + f_nonholo;
     // printf("origin %f %f %f %f\n", f_smoothness, f_fitness, f_feasibility, f_combine);
 
-    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness + lambda3_ * g_feasibility;
+    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness + lambda3_ * g_feasibility + g_height + g_nonholo;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }
 

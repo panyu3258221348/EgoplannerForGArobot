@@ -63,12 +63,13 @@ if(ENABLE_CUDA)
     ${catkin_LIBRARIES}
   )
 else(ENABLE_CUDA)
+  find_package(OpenCV REQUIRED)
   find_package(Eigen3 REQUIRED)
   find_package(catkin REQUIRED COMPONENTS
-      roscpp roslib cmake_modules pcl_ros sensor_msgs geometry_msgs nav_msgs quadrotor_msgs)
-  
+      roscpp roslib cmake_modules pcl_ros sensor_msgs geometry_msgs nav_msgs quadrotor_msgs cv_bridge tf)
+
   catkin_package(
-      DEPENDS Eigen
+      DEPENDS Eigen OpenCV
       CATKIN_DEPENDS roscpp roslib pcl_ros
   )
 
@@ -76,15 +77,18 @@ else(ENABLE_CUDA)
     SYSTEM 
     ${catkin_INCLUDE_DIRS}
     ${Eigen_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
   )
 
   add_executable(
     pcl_render_node
-    src/pointcloud_render_node.cpp
+    src/pcl_render_node.cpp
+    src/cpu_depth_render.cpp
   )
 
   target_link_libraries( pcl_render_node
     ${catkin_LIBRARIES}
+    ${OpenCV_LIBS}
     ${PCL_LIBRARIES}
   )
 endif(ENABLE_CUDA)

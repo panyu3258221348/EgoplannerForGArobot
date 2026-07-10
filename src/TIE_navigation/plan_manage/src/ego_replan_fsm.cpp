@@ -56,15 +56,19 @@ namespace plan_manage
 
   void EGOReplanFSM::planGlobalTrajbyGivenWps()
   {
+    if (waypoint_num_ <= 0)
+    {
+      ROS_ERROR("waypoint_num_ = %d, no waypoints configured!", waypoint_num_);
+      return;
+    }
     std::vector<Eigen::Vector3d> wps(waypoint_num_);
     for (int i = 0; i < waypoint_num_; i++)
     {
       wps[i](0) = waypoints_[i][0];
       wps[i](1) = waypoints_[i][1];
       wps[i](2) = waypoints_[i][2];
-
-      end_pt_ = wps.back();
     }
+    end_pt_ = wps.back();
     bool success = planner_manager_->planGlobalTrajWaypoints(odom_pos_, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), wps, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
     for (size_t i = 0; i < (size_t)waypoint_num_; i++)
@@ -106,6 +110,35 @@ namespace plan_manage
     }
   }
 
+  void EGOReplanFSM::publishBspline()
+  {
+    auto info = &planner_manager_->local_data_;
+    plan_manage::Bspline bspline;
+    bspline.order = 3;
+    bspline.start_time = info->start_time_;
+    bspline.traj_id = info->traj_id_;
+
+    Eigen::MatrixXd pos_pts = info->position_traj_.getControlPoint();
+    bspline.pos_pts.reserve(pos_pts.cols());
+    for (int i = 0; i < pos_pts.cols(); ++i)
+    {
+      geometry_msgs::Point pt;
+      pt.x = pos_pts(0, i);
+      pt.y = pos_pts(1, i);
+      pt.z = pos_pts(2, i);
+      bspline.pos_pts.push_back(pt);
+    }
+
+    Eigen::VectorXd knots = info->position_traj_.getKnot();
+    bspline.knots.reserve(knots.rows());
+    for (int i = 0; i < knots.rows(); ++i)
+    {
+      bspline.knots.push_back(knots(i));
+    }
+
+    bspline_pub_.publish(bspline);
+  }
+
   void EGOReplanFSM::waypointCallback(const nav_msgs::PathConstPtr &msg)
   {
     if (msg->poses[0].pose.position.z < -0.1)
@@ -116,7 +149,7 @@ namespace plan_manage
     init_pt_ = odom_pos_;
 
     bool success = false;
-    end_pt_ << msg->poses[0].pose.position.x, msg->poses[0].pose.position.y, msg->poses[0].pose.position.z;
+    end_pt_ << msg->poses[0].pose.position.x, msg->poses[0].pose.position.y, max(msg->poses[0].pose.position.z, 0.25);
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), end_pt_, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
     visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, 0);
@@ -142,8 +175,9 @@ namespace plan_manage
         changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
       else if (exec_state_ == EXEC_TRAJ)
         changeFSMExecState(REPLAN_TRAJ, "TRIG");
+      else if (exec_state_ == EMERGENCY_STOP)
+        changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
 
-      // visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(1, 0, 0, 1), 0.3, 0);
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
     }
     else
@@ -200,9 +234,13 @@ namespace plan_manage
 
   void EGOReplanFSM::execFSMCallback(const ros::TimerEvent &e)
   {
-
+    std::lock_guard<std::mutex> lock(fsm_mutex_);
     static int fsm_num = 0;
     fsm_num++;
+    if (fsm_num == 1) {
+      fprintf(stderr, ">>> FSM timer started, odom=%d\n", (int)have_odom_);
+      fflush(stderr);
+    }
     if (fsm_num == 100)
     {
       printFSMExecState();
@@ -259,9 +297,13 @@ namespace plan_manage
       bool success = callReboundReplan(true, flag_random_poly_init);
       if (success)
       {
-
         changeFSMExecState(EXEC_TRAJ, "FSM");
         flag_escape_emergency_ = true;
+      }
+      else if ((end_pt_ - odom_pos_).norm() < no_replan_thresh_)
+      {
+        have_target_ = false;
+        changeFSMExecState(WAIT_TARGET, "FSM");
       }
       else
       {
@@ -276,6 +318,11 @@ namespace plan_manage
       if (planFromCurrentTraj())
       {
         changeFSMExecState(EXEC_TRAJ, "FSM");
+      }
+      else if ((end_pt_ - odom_pos_).norm() < no_replan_thresh_)
+      {
+        have_target_ = false;
+        changeFSMExecState(WAIT_TARGET, "FSM");
       }
       else
       {
@@ -376,6 +423,7 @@ namespace plan_manage
 
   void EGOReplanFSM::checkCollisionCallback(const ros::TimerEvent &e)
   {
+    std::lock_guard<std::mutex> lock(fsm_mutex_);
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
 
@@ -431,34 +479,9 @@ namespace plan_manage
     if (plan_success)
     {
 
+      publishBspline();
+
       auto info = &planner_manager_->local_data_;
-
-      /* publish traj */
-      plan_manage::Bspline bspline;
-      bspline.order = 3;
-      bspline.start_time = info->start_time_;
-      bspline.traj_id = info->traj_id_;
-
-      Eigen::MatrixXd pos_pts = info->position_traj_.getControlPoint();
-      bspline.pos_pts.reserve(pos_pts.cols());
-      for (int i = 0; i < pos_pts.cols(); ++i)
-      {
-        geometry_msgs::Point pt;
-        pt.x = pos_pts(0, i);
-        pt.y = pos_pts(1, i);
-        pt.z = pos_pts(2, i);
-        bspline.pos_pts.push_back(pt);
-      }
-
-      Eigen::VectorXd knots = info->position_traj_.getKnot();
-      bspline.knots.reserve(knots.rows());
-      for (int i = 0; i < knots.rows(); ++i)
-      {
-        bspline.knots.push_back(knots(i));
-      }
-
-      bspline_pub_.publish(bspline);
-
       visualization_->displayOptimalList(info->position_traj_.get_control_points(), 0);
     }
 
@@ -470,33 +493,7 @@ namespace plan_manage
 
     planner_manager_->EmergencyStop(stop_pos);
 
-    auto info = &planner_manager_->local_data_;
-
-    /* publish traj */
-    plan_manage::Bspline bspline;
-    bspline.order = 3;
-    bspline.start_time = info->start_time_;
-    bspline.traj_id = info->traj_id_;
-
-    Eigen::MatrixXd pos_pts = info->position_traj_.getControlPoint();
-    bspline.pos_pts.reserve(pos_pts.cols());
-    for (int i = 0; i < pos_pts.cols(); ++i)
-    {
-      geometry_msgs::Point pt;
-      pt.x = pos_pts(0, i);
-      pt.y = pos_pts(1, i);
-      pt.z = pos_pts(2, i);
-      bspline.pos_pts.push_back(pt);
-    }
-
-    Eigen::VectorXd knots = info->position_traj_.getKnot();
-    bspline.knots.reserve(knots.rows());
-    for (int i = 0; i < knots.rows(); ++i)
-    {
-      bspline.knots.push_back(knots(i));
-    }
-
-    bspline_pub_.publish(bspline);
+    publishBspline();
 
     return true;
   }

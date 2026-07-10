@@ -30,7 +30,10 @@ namespace plan_manage
     bspline_optimizer_rebound_->setParam(nh);
     bspline_optimizer_rebound_->setEnvironment(grid_map_);
     bspline_optimizer_rebound_->a_star_.reset(new AStar);
+    bspline_optimizer_rebound_->a_star_->setParam(nh);
+    ROS_ERROR(">>> init A* pool start");
     bspline_optimizer_rebound_->a_star_->initGridMap(grid_map_, Eigen::Vector3i(100, 100, 100));
+    ROS_ERROR(">>> init A* pool done");
 
     visualization_ = vis;
   }
@@ -244,6 +247,9 @@ namespace plan_manage
     bool flag_step_2_success = true;
     if (!pos.checkFeasibility(ratio, false))
     {
+      printf("[REFINE] ratio=%.2f  start_z=%.2f goal_z=%.2f  cps_z=[%.2f..%.2f]  ts=%.3f\n",
+             ratio, start_pt(2), local_target_pt(2),
+             ctrl_pts.row(2).minCoeff(), ctrl_pts.row(2).maxCoeff(), ts);
       cout << "Need to reallocate time." << endl;
 
       Eigen::MatrixXd optimal_control_points;
@@ -367,65 +373,9 @@ namespace plan_manage
   bool EGOPlannerManager::planGlobalTraj(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
                                          const Eigen::Vector3d &end_pos, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc)
   {
-
-    // generate global reference trajectory
-
-    vector<Eigen::Vector3d> points;
-    points.push_back(start_pos);
-    points.push_back(end_pos);
-
-    // insert intermediate points if too far
-    vector<Eigen::Vector3d> inter_points;
-    const double dist_thresh = 4.0;
-
-    for (size_t i = 0; i < points.size() - 1; ++i)
-    {
-      inter_points.push_back(points.at(i));
-      double dist = (points.at(i + 1) - points.at(i)).norm();
-
-      if (dist > dist_thresh)
-      {
-        int id_num = floor(dist / dist_thresh) + 1;
-
-        for (int j = 1; j < id_num; ++j)
-        {
-          Eigen::Vector3d inter_pt =
-              points.at(i) * (1.0 - double(j) / id_num) + points.at(i + 1) * double(j) / id_num;
-          inter_points.push_back(inter_pt);
-        }
-      }
-    }
-
-    inter_points.push_back(points.back());
-
-    // write position matrix
-    int pt_num = inter_points.size();
-    Eigen::MatrixXd pos(3, pt_num);
-    for (int i = 0; i < pt_num; ++i)
-      pos.col(i) = inter_points[i];
-
-    Eigen::Vector3d zero(0, 0, 0);
-    Eigen::VectorXd time(pt_num - 1);
-    for (int i = 0; i < pt_num - 1; ++i)
-    {
-      time(i) = (pos.col(i + 1) - pos.col(i)).norm() / (pp_.max_vel_);
-    }
-
-    time(0) *= 2.0;
-    time(time.rows() - 1) *= 2.0;
-
-    PolynomialTraj gl_traj;
-    if (pos.cols() >= 3)
-      gl_traj = PolynomialTraj::minSnapTraj(pos, start_vel, end_vel, start_acc, end_acc, time);
-    else if (pos.cols() == 2)
-      gl_traj = PolynomialTraj::one_segment_traj_gen(start_pos, start_vel, start_acc, end_pos, end_vel, end_acc, time(0));
-    else
-      return false;
-
-    auto time_now = ros::Time::now();
-    global_data_.setGlobalTraj(gl_traj, time_now);
-
-    return true;
+    std::vector<Eigen::Vector3d> waypoints;
+    waypoints.push_back(end_pos);
+    return planGlobalTrajWaypoints(start_pos, start_vel, start_acc, waypoints, end_vel, end_acc);
   }
 
   bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)

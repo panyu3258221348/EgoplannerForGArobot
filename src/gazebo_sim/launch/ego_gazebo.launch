@@ -1,0 +1,65 @@
+<launch>
+  <arg name="map_size_x" value="100.0"/>
+  <arg name="map_size_y" value="100.0"/>
+  <arg name="map_size_z" value="10.0"/>
+
+  <!-- ===== Gazebo ===== -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find gazebo_sim)/worlds/obstacle_world.world"/>
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+  </include>
+
+  <param name="robot_description" textfile="$(find gazebo_sim)/urdf/tabv.urdf"/>
+
+  <node name="spawn_tabv" pkg="gazebo_ros" type="spawn_model" output="screen"
+        args="-urdf -param robot_description -model tabv -x 6 -y 6 -z 0.5"/>
+
+  <!-- 位置控制器 -->
+  <node name="gazebo_controller" pkg="gazebo_sim" type="gazebo_controller" output="screen"/>
+
+  <!-- ===== EGO Planner: 直接用 Gazebo 深度点云建图 ===== -->
+  <include file="$(find plan_manage)/launch/advanced_param.xml">
+    <arg name="map_size_x_" value="$(arg map_size_x)"/>
+    <arg name="map_size_y_" value="$(arg map_size_y)"/>
+    <arg name="map_size_z_" value="$(arg map_size_z)"/>
+    <arg name="odometry_topic" value="/visual_slam/odom"/>
+
+    <arg name="camera_pose_topic" value="/depth_cam/pose"/>
+    <arg name="depth_topic" value="/d435/depth/image_raw"/>
+    <arg name="cloud_topic" value="/grid_map/cloud"/>
+
+    <arg name="cx" value="320.0"/><arg name="cy" value="240.0"/>
+    <arg name="fx" value="337.2"/><arg name="fy" value="337.2"/>
+
+    <arg name="max_vel" value="0.75"/>
+    <arg name="max_acc" value="1.0"/>
+    <arg name="planning_horizon" value="5.0"/>
+
+    <arg name="flight_type" value="1"/>
+    <arg name="point_num" value="1"/>
+    <arg name="point0_x" value="0"/><arg name="point0_y" value="0"/><arg name="point0_z" value="0"/>
+    <arg name="point1_x" value="0"/><arg name="point1_y" value="0"/><arg name="point1_z" value="0"/>
+    <arg name="point2_x" value="0"/><arg name="point2_y" value="0"/><arg name="point2_z" value="0"/>
+    <arg name="point3_x" value="0"/><arg name="point3_y" value="0"/><arg name="point3_z" value="0"/>
+    <arg name="point4_x" value="0"/><arg name="point4_y" value="0"/><arg name="point4_z" value="0"/>
+  </include>
+
+  <node pkg="plan_manage" name="traj_server" type="traj_server" output="screen">
+    <remap from="/position_cmd" to="planning/pos_cmd"/>
+    <remap from="/odom_world" to="/visual_slam/odom"/>
+    <param name="traj_server/time_forward" value="1.0" type="double"/>
+    <param name="traj_server/ground_judge" value="0.3" type="double"/>
+    <param name="traj_server/ground_height" value="0.25" type="double"/>
+  </node>
+
+  <node pkg="waypoint_generator" name="waypoint_generator" type="waypoint_generator" output="screen">
+    <remap from="~odom" to="/visual_slam/odom"/>
+    <remap from="~goal" to="/move_base_simple/goal"/>
+    <param name="waypoint_type" value="manual-lonely-waypoint"/>
+  </node>
+
+  <node name="rviz" pkg="rviz" type="rviz" output="log" args="-d $(find plan_manage)/config/traj.rviz"/>
+
+</launch>

@@ -1,4 +1,5 @@
 <launch>
+  <param name="/use_sim_time" value="false"/>
   <arg name="map_size_x" value="20.0"/>
   <arg name="map_size_y" value="20.0"/>
   <arg name="map_size_z" value="5.0"/>
@@ -11,9 +12,9 @@
     <arg name="map_size_z_" value="$(arg map_size_z)"/>
     <arg name="odometry_topic" value="$(arg odom_topic)"/>
 
-    <arg name="camera_pose_topic" value="/pcl_render_node/camera_pose"/>
-    <arg name="depth_topic" value="/pcl_render_node/depth"/>
-    <arg name="cloud_topic" value="/map_generator/global_cloud"/>
+    <arg name="camera_pose_topic" value="/unused"/>
+    <arg name="depth_topic" value="/unused"/>
+    <arg name="cloud_topic" value="/pcl_render_node/rendered_pcl"/>
 
     <arg name="cx" value="321.04638671875"/>
     <arg name="cy" value="243.44969177246094"/>
@@ -48,6 +49,8 @@
     <remap from="/position_cmd" to="planning/pos_cmd"/>
     <remap from="/odom_world" to="$(arg odom_topic)"/>
     <param name="traj_server/time_forward" value="1.0" type="double"/>
+    <param name="traj_server/ground_judge" value="0.3" type="double"/>
+    <param name="traj_server/ground_height" value="0.2" type="double"/>
   </node>
 
   <node pkg="waypoint_generator" name="waypoint_generator" type="waypoint_generator" output="screen">

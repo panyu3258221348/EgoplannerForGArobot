@@ -114,6 +114,14 @@ namespace plan_manage
     double lambda3_;               // feasibility weight
     double lambda4_;               // curve fitting
 
+    double lambda_height_;         // terrestrial-aerial height constraint weight
+    double max_height_;            // maximum flight height (m)
+    double ground_height_;         // ground surface height (m), lower bound for the trajectory
+    double lambda_ground_;         // ground-attraction weight (pull traversable segments onto the ground)
+    double lambda_nonholo_;        // ground non-holonomic (lateral) constraint weight
+    double ground_judge_;          // z threshold (m); below it the vehicle is in ground mode
+    double ground_clear_radius_;   // horizontal clearance (m); no ground-attraction near obstacles (allow climbing)
+
     int a;
     //
     double dist0_;             // safe distance
@@ -134,12 +142,18 @@ namespace plan_manage
 
     // q contains all control points
     void calcSmoothnessCost(const Eigen::MatrixXd &q, double &cost,
-                            Eigen::MatrixXd &gradient, bool falg_use_jerk = true);
+                            Eigen::MatrixXd &gradient, bool flag_use_jerk = true);
     void calcFeasibilityCost(const Eigen::MatrixXd &q, double &cost,
                              Eigen::MatrixXd &gradient);
     void calcDistanceCostRebound(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient, int iter_num, double smoothness_cost);
     void calcFitnessCost(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient);
+    void calcHeightCost(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient);
+    void calcGroundNonHolonomicCost(const Eigen::MatrixXd &q, double &cost, Eigen::MatrixXd &gradient);
     bool check_collision_and_rebound(void);
+    bool findIntersectionPoint(const std::vector<Eigen::Vector3d> &a_star_path,
+                               const Eigen::Vector3d &point,
+                               const Eigen::Vector3d &ctrl_pts_law,
+                               Eigen::Vector3d &intersection_point);
 
     static int earlyExit(void *func_data, const double *x, const double *g, const double fx, const double xnorm, const double gnorm, const double step, int n, int k, int ls);
     static double costFunctionRebound(void *func_data, const double *x, double *grad, const int n);

@@ -116,8 +116,8 @@ struct MappingData {
   // flag buffers for speeding up raycasting
 
   vector<short> count_hit_, count_hit_and_miss_;
-  vector<char> flag_traverse_, flag_rayend_;
-  char raycast_num_;
+  vector<int> flag_traverse_, flag_rayend_;
+  int raycast_num_;
   queue<Eigen::Vector3i> cache_voxel_;
 
   // range of updating grid
@@ -308,7 +308,7 @@ inline void GridMap::setOccupancy(Eigen::Vector3d pos, double occ) {
 }
 
 inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
-  if (!isInMap(pos)) return -1;
+  if (!isInMap(pos)) return 0;
 
   Eigen::Vector3i id;
   posToIndex(pos, id);
@@ -317,7 +317,7 @@ inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
 }
 
 inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos) {
-  if (!isInMap(pos)) return -1;
+  if (!isInMap(pos)) return 0;
 
   Eigen::Vector3i id;
   posToIndex(pos, id);
